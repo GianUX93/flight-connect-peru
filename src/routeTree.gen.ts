@@ -9,38 +9,155 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as TrustRouteImport } from './routes/trust'
+import { Route as PublishRouteImport } from './routes/publish'
+import { Route as ProfileRouteImport } from './routes/profile'
+import { Route as ExploreRouteImport } from './routes/explore'
+import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as FlightIdRouteImport } from './routes/flight.$id'
 
+const TrustRoute = TrustRouteImport.update({
+  id: '/trust',
+  path: '/trust',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PublishRoute = PublishRouteImport.update({
+  id: '/publish',
+  path: '/publish',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProfileRoute = ProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ExploreRoute = ExploreRouteImport.update({
+  id: '/explore',
+  path: '/explore',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DashboardRoute = DashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const FlightIdRoute = FlightIdRouteImport.update({
+  id: '/flight/$id',
+  path: '/flight/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/dashboard': typeof DashboardRoute
+  '/explore': typeof ExploreRoute
+  '/profile': typeof ProfileRoute
+  '/publish': typeof PublishRoute
+  '/trust': typeof TrustRoute
+  '/flight/$id': typeof FlightIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/dashboard': typeof DashboardRoute
+  '/explore': typeof ExploreRoute
+  '/profile': typeof ProfileRoute
+  '/publish': typeof PublishRoute
+  '/trust': typeof TrustRoute
+  '/flight/$id': typeof FlightIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/dashboard': typeof DashboardRoute
+  '/explore': typeof ExploreRoute
+  '/profile': typeof ProfileRoute
+  '/publish': typeof PublishRoute
+  '/trust': typeof TrustRoute
+  '/flight/$id': typeof FlightIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/dashboard'
+    | '/explore'
+    | '/profile'
+    | '/publish'
+    | '/trust'
+    | '/flight/$id'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/dashboard'
+    | '/explore'
+    | '/profile'
+    | '/publish'
+    | '/trust'
+    | '/flight/$id'
+  id:
+    | '__root__'
+    | '/'
+    | '/dashboard'
+    | '/explore'
+    | '/profile'
+    | '/publish'
+    | '/trust'
+    | '/flight/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  DashboardRoute: typeof DashboardRoute
+  ExploreRoute: typeof ExploreRoute
+  ProfileRoute: typeof ProfileRoute
+  PublishRoute: typeof PublishRoute
+  TrustRoute: typeof TrustRoute
+  FlightIdRoute: typeof FlightIdRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/trust': {
+      id: '/trust'
+      path: '/trust'
+      fullPath: '/trust'
+      preLoaderRoute: typeof TrustRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/publish': {
+      id: '/publish'
+      path: '/publish'
+      fullPath: '/publish'
+      preLoaderRoute: typeof PublishRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/profile': {
+      id: '/profile'
+      path: '/profile'
+      fullPath: '/profile'
+      preLoaderRoute: typeof ProfileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/explore': {
+      id: '/explore'
+      path: '/explore'
+      fullPath: '/explore'
+      preLoaderRoute: typeof ExploreRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/dashboard': {
+      id: '/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof DashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -48,22 +165,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/flight/$id': {
+      id: '/flight/$id'
+      path: '/flight/$id'
+      fullPath: '/flight/$id'
+      preLoaderRoute: typeof FlightIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  DashboardRoute: DashboardRoute,
+  ExploreRoute: ExploreRoute,
+  ProfileRoute: ProfileRoute,
+  PublishRoute: PublishRoute,
+  TrustRoute: TrustRoute,
+  FlightIdRoute: FlightIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
