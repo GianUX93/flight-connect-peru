@@ -1,7 +1,8 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import { Bell, Calendar, Search, SlidersHorizontal, AlertTriangle } from "lucide-react";
 import { z } from "zod";
+import gsap from "gsap";
 
 import { flights, airportsList, airlines } from "@/lib/mock-data";
 import {
@@ -27,17 +28,7 @@ export const Route = createFileRoute("/explore")({
   head: () => ({
     meta: [
       { title: "Explorar vuelos disponibles — Traspaso" },
-      {
-        name: "description",
-        content:
-          "Encuentra pasajes aéreos nacionales endosables por otras personas. Dos modos de búsqueda: fecha específica u ofertas del día.",
-      },
-      { property: "og:title", content: "Explorar vuelos endosables — Traspaso" },
-      {
-        property: "og:description",
-        content:
-          "Descubre vuelos nacionales de último minuto con descuento real y pago protegido.",
-      },
+      { name: "description", content: "Encuentra pasajes aéreos nacionales endosables por otras personas." },
     ],
   }),
   component: Explore,
@@ -87,19 +78,38 @@ function Explore() {
 
   const results = mode === "specific" ? specificMatches : filtered;
 
+  // GSAP animation
+  const gridRef = useRef<HTMLDivElement>(null);
+  
+  useEffect(() => {
+    if (!gridRef.current) return;
+    // Animate cards inside gridRef
+    const ctx = gsap.context(() => {
+      gsap.from(".flight-anim", {
+        y: 40,
+        opacity: 0,
+        duration: 0.5,
+        stagger: 0.1,
+        ease: "power2.out",
+        clearProps: "all"
+      });
+    }, gridRef);
+    return () => ctx.revert();
+  }, [results, lastCall, mode]);
+
   return (
-    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 md:py-12">
+    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 md:py-12" ref={gridRef}>
       <div className="flex items-baseline justify-between gap-4">
         <div>
-          <h1 className="font-display text-4xl md:text-5xl">Explorar vuelos</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <h1 className="font-display text-4xl md:text-5xl font-extrabold text-[var(--color-ink)]">Explorar vuelos</h1>
+          <p className="mt-2 text-sm text-muted-foreground font-medium">
             Solo mostramos pasajes con endoso viable. Los vencidos se ocultan automáticamente.
           </p>
         </div>
       </div>
 
       {/* Mode switch */}
-      <div className="mt-6 inline-flex rounded-full border border-hairline bg-surface p-1">
+      <div className="mt-8 inline-flex rounded-full border border-border bg-white p-1 shadow-sm">
         <ModeTab
           active={mode === "specific"}
           onClick={() => navigate({ search: { ...search, mode: "specific" } })}
@@ -117,7 +127,7 @@ function Explore() {
       </div>
 
       {/* Search bar */}
-      <div className="mt-4 grid gap-3 rounded-2xl border border-hairline bg-surface p-4 md:grid-cols-[1fr_1fr_1fr_auto]">
+      <div className="mt-6 grid gap-3 rounded-2xl border border-border bg-white p-5 shadow-sm md:grid-cols-[1fr_1fr_1fr_auto]">
         <SelectField
           label="Origen"
           value={search.from ?? ""}
@@ -132,12 +142,12 @@ function Explore() {
         />
         {mode === "specific" ? (
           <div className="flex flex-col">
-            <label className="text-[11px] uppercase tracking-widest text-muted-foreground">
+            <label className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
               Fecha exacta
             </label>
             <input
               type="date"
-              className="mt-1 rounded-lg border border-hairline bg-background px-3 py-2 text-sm"
+              className="mt-1.5 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium"
               value={search.date ?? ""}
               onChange={(e) =>
                 navigate({ search: { ...search, date: e.target.value || undefined } })
@@ -146,16 +156,16 @@ function Explore() {
           </div>
         ) : (
           <div className="flex flex-col">
-            <label className="text-[11px] uppercase tracking-widest text-muted-foreground">
+            <label className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
               Rango
             </label>
-            <div className="mt-1 rounded-lg border border-hairline bg-background px-3 py-2 text-sm text-muted-foreground">
+            <div className="mt-1.5 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium text-[var(--color-ink)]">
               Próximos 14 días
             </div>
           </div>
         )}
         <div className="flex items-end">
-          <button className="inline-flex h-[38px] w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground md:w-auto">
+          <button className="inline-flex h-[38px] w-full items-center justify-center gap-2 rounded-lg bg-[var(--color-primary-token)] px-6 text-sm font-bold text-white transition-colors hover:bg-[var(--color-primary-token)]/90 md:w-auto">
             <Search className="h-4 w-4" /> Buscar
           </button>
         </div>
@@ -163,15 +173,17 @@ function Explore() {
 
       {/* Secondary filters */}
       <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
-        <SlidersHorizontal className="h-4 w-4 text-muted-foreground" />
+        <div className="flex items-center gap-2 text-muted-foreground bg-white px-3 py-1.5 rounded-full border border-border">
+          <SlidersHorizontal className="h-4 w-4" /> Filtros
+        </div>
         <PillSelect
           label="Aerolínea"
           value={airlineFilter}
           onChange={setAirlineFilter}
           options={[["all", "Todas"], ...airlines.map((a) => [a, a] as [string, string])]}
         />
-        <div className="inline-flex items-center gap-2 rounded-full border border-hairline bg-surface px-3 py-1.5">
-          <span className="text-muted-foreground">Máx. {S(maxPrice)}</span>
+        <div className="inline-flex items-center gap-2 rounded-full border border-border bg-white px-4 py-1.5">
+          <span className="text-muted-foreground font-medium text-xs">Máx. {S(maxPrice)}</span>
           <input
             type="range"
             min={50}
@@ -179,12 +191,11 @@ function Explore() {
             step={10}
             value={maxPrice}
             onChange={(e) => setMaxPrice(Number(e.target.value))}
-            className="w-32 accent-[color:var(--color-signal)]"
+            className="w-24 accent-[var(--color-primary-token)]"
           />
         </div>
-        <span className="ml-auto text-xs text-muted-foreground">
-          {results.length} pasaje{results.length === 1 ? "" : "s"} disponible
-          {results.length === 1 ? "" : "s"}
+        <span className="ml-auto text-xs font-bold text-[var(--color-primary-token)] bg-white px-3 py-1.5 rounded-full border border-border">
+          {results.length} pasaje{results.length === 1 ? "" : "s"} disponible{results.length === 1 ? "" : "s"}
         </span>
       </div>
 
@@ -205,16 +216,18 @@ function Explore() {
 
       {/* Active grid */}
       {results.length > 0 && (
-        <section className="mt-8">
-          <div className="mb-4 flex items-baseline justify-between">
-            <h2 className="font-display text-2xl">Ofertas activas</h2>
-            <span className="text-xs text-muted-foreground">
-              Todas con más de 24h para el endoso
+        <section className="mt-12">
+          <div className="mb-6 flex items-baseline justify-between">
+            <h2 className="font-display text-2xl font-extrabold text-[var(--color-ink)]">Ofertas activas</h2>
+            <span className="text-xs font-bold uppercase text-[var(--color-secondary-token)]">
+              +24h para el endoso
             </span>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {results.map((f) => (
-              <FlightCard key={f.id} flight={f} />
+              <div key={f.id} className="flight-anim h-full">
+                <FlightCard flight={f} />
+              </div>
             ))}
           </div>
         </section>
@@ -222,26 +235,30 @@ function Explore() {
 
       {/* Last call — visually separated lane */}
       {lastCall.length > 0 && (
-        <section className="mt-16">
-          <div className="mb-4 rounded-2xl border border-[color-mix(in_oklab,var(--warn)_35%,transparent)] bg-[color-mix(in_oklab,var(--warn)_6%,transparent)] p-5">
-            <div className="flex items-start gap-3">
-              <AlertTriangle className="mt-0.5 h-5 w-5 text-warn" />
+        <section className="mt-20">
+          <div className="mb-6 rounded-2xl border border-[var(--color-warning-token)] bg-yellow-50 p-6 shadow-sm">
+            <div className="flex items-start gap-4">
+              <div className="bg-[var(--color-warning-token)] p-3 rounded-full mt-1">
+                <AlertTriangle className="h-6 w-6 text-[var(--color-ink)]" />
+              </div>
               <div>
-                <h2 className="font-display text-2xl text-warn">Última llamada</h2>
-                <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+                <h2 className="font-display text-2xl font-extrabold text-[var(--color-ink)]">Última llamada</h2>
+                <p className="mt-2 max-w-2xl text-sm font-medium text-[var(--color-ink)]/70 leading-relaxed">
                   Estos pasajes salen en menos de 24 horas. El trámite de endoso puede
                   ser ajustado — solo compra si puedes coordinar en cuestión de horas.
                   <br />
-                  <span className="text-warn/90">
+                  <span className="text-[var(--color-primary-token)] font-bold">
                     No se recomiendan para quien busca certeza total.
                   </span>
                 </p>
               </div>
             </div>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {lastCall.map((f) => (
-              <FlightCard key={f.id} flight={f} variant="last_call" />
+              <div key={f.id} className="flight-anim h-full">
+                <FlightCard flight={f} variant="last_call" />
+              </div>
             ))}
           </div>
         </section>
@@ -266,22 +283,22 @@ function ModeTab({
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-3 rounded-full px-4 py-2.5 text-left transition-colors ${
-        active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+      className={`flex items-center gap-3 rounded-full px-5 py-2.5 text-left transition-colors ${
+        active ? "bg-[var(--color-ink)] text-white shadow-md" : "text-muted-foreground hover:bg-gray-50"
       }`}
     >
       <span
-        className={`grid h-7 w-7 place-items-center rounded-full ${
-          active ? "bg-[var(--primary-foreground)]/10" : "bg-surface-2"
+        className={`grid h-8 w-8 shrink-0 place-items-center rounded-full ${
+          active ? "bg-white/20 text-white" : "bg-gray-100 text-gray-500"
         }`}
       >
         {icon}
       </span>
       <span className="flex flex-col leading-tight">
-        <span className="text-sm font-medium">{title}</span>
+        <span className="text-sm font-bold">{title}</span>
         <span
-          className={`text-[11px] ${
-            active ? "opacity-70" : "text-muted-foreground"
+          className={`text-[11px] font-medium ${
+            active ? "text-gray-300" : "text-gray-400"
           }`}
         >
           {subtitle}
@@ -304,13 +321,13 @@ function SelectField({
 }) {
   return (
     <div className="flex flex-col">
-      <label className="text-[11px] uppercase tracking-widest text-muted-foreground">
+      <label className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
         {label}
       </label>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="mt-1 rounded-lg border border-hairline bg-background px-3 py-2 text-sm"
+        className="mt-1.5 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium focus:border-[var(--color-primary-token)] focus:ring-[var(--color-primary-token)]"
       >
         {options.map(([v, l]) => (
           <option key={v} value={v}>
@@ -334,12 +351,12 @@ function PillSelect({
   options: [string, string][];
 }) {
   return (
-    <label className="inline-flex items-center gap-2 rounded-full border border-hairline bg-surface px-3 py-1.5">
-      <span className="text-muted-foreground">{label}</span>
+    <label className="inline-flex items-center gap-2 rounded-full border border-border bg-white px-4 py-1.5">
+      <span className="text-muted-foreground font-bold text-xs">{label}</span>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="bg-transparent text-foreground focus:outline-none"
+        className="bg-transparent text-[var(--color-ink)] text-xs font-medium focus:outline-none"
       >
         {options.map(([v, l]) => (
           <option key={v} value={v} className="bg-background">
@@ -361,16 +378,16 @@ function NoExactResults({
   onAlert: () => void;
 }) {
   return (
-    <div className="mt-8 rounded-3xl border border-hairline bg-surface p-6 md:p-8">
-      <div className="flex flex-wrap items-start justify-between gap-4">
+    <div className="mt-12 rounded-[2rem] border border-border bg-white p-8 md:p-10 shadow-sm text-center md:text-left">
+      <div className="flex flex-col md:flex-row items-center md:items-start justify-between gap-6">
         <div>
-          <div className="text-xs uppercase tracking-widest text-muted-foreground">
+          <div className="text-xs font-bold uppercase tracking-widest text-[var(--color-primary-token)]">
             Sin coincidencias exactas
           </div>
-          <h2 className="mt-1 font-display text-3xl">
+          <h2 className="mt-2 font-display text-3xl font-extrabold text-[var(--color-ink)]">
             Nadie ha publicado un pasaje para {fmtDay(date.toISOString())}
           </h2>
-          <p className="mt-2 max-w-xl text-sm text-muted-foreground">
+          <p className="mt-3 max-w-xl text-sm font-medium text-muted-foreground leading-relaxed">
             Este es un marketplace: el inventario depende de lo que otras personas
             publican. Te mostramos las fechas cercanas con disponibilidad real, o
             puedes activar una alerta para esta fecha.
@@ -378,15 +395,15 @@ function NoExactResults({
         </div>
         <button
           onClick={onAlert}
-          className="inline-flex items-center gap-2 rounded-full bg-signal px-4 py-2 text-sm font-medium text-[var(--color-signal-foreground)]"
+          className="inline-flex shrink-0 items-center gap-2 rounded-full bg-[var(--color-secondary-token)] px-6 py-3 text-sm font-bold text-white transition-transform hover:scale-105"
         >
           <Bell className="h-4 w-4" /> Avísame cuando aparezca
         </button>
       </div>
 
       {nearby.length > 0 && (
-        <div className="mt-6">
-          <div className="mb-3 text-xs uppercase tracking-widest text-muted-foreground">
+        <div className="mt-10 pt-8 border-t border-dashed border-border">
+          <div className="mb-4 text-xs font-bold uppercase tracking-widest text-muted-foreground">
             Fechas cercanas con disponibilidad
           </div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -395,18 +412,18 @@ function NoExactResults({
                 key={f.id}
                 to="/flight/$id"
                 params={{ id: f.id }}
-                className="flex items-center justify-between gap-3 rounded-xl border border-hairline bg-background p-4 hover:border-signal/40"
+                className="flex items-center justify-between gap-3 tarjeta-boleto p-4 hover:border-[var(--color-secondary-token)]"
               >
                 <div>
-                  <div className="text-[11px] uppercase tracking-widest text-muted-foreground">
+                  <div className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
                     {f.origin.code} → {f.destination.code}
                   </div>
-                  <div className="mt-1 font-display text-lg leading-tight">
+                  <div className="mt-1 font-display text-lg font-bold leading-tight text-[var(--color-ink)]">
                     {fmtDate(f.departureAt)}
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="font-display text-xl">{S(f.resalePrice)}</div>
+                  <div className="font-mono text-xl font-bold text-[var(--color-primary-token)]">{S(f.resalePrice)}</div>
                 </div>
               </Link>
             ))}

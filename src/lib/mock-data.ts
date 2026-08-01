@@ -16,6 +16,7 @@ export interface Seller {
   id: string;
   name: string;
   avatar: string;
+  avatarUrl: string;
   rating: number;
   reviews: number;
   verifiedId: boolean;
@@ -58,6 +59,7 @@ const sellers: Seller[] = [
     id: "s1",
     name: "Camila R.",
     avatar: "CR",
+    avatarUrl: "https://i.pravatar.cc/150?img=47",
     rating: 4.9,
     reviews: 27,
     verifiedId: true,
@@ -67,6 +69,7 @@ const sellers: Seller[] = [
     id: "s2",
     name: "Diego M.",
     avatar: "DM",
+    avatarUrl: "https://i.pravatar.cc/150?img=12",
     rating: 4.8,
     reviews: 12,
     verifiedId: true,
@@ -76,6 +79,7 @@ const sellers: Seller[] = [
     id: "s3",
     name: "Valeria P.",
     avatar: "VP",
+    avatarUrl: "https://i.pravatar.cc/150?img=25",
     rating: 5.0,
     reviews: 41,
     verifiedId: true,
@@ -85,6 +89,7 @@ const sellers: Seller[] = [
     id: "s4",
     name: "Rodrigo A.",
     avatar: "RA",
+    avatarUrl: "https://i.pravatar.cc/150?img=33",
     rating: 4.6,
     reviews: 8,
     verifiedId: false,
@@ -94,6 +99,7 @@ const sellers: Seller[] = [
     id: "s5",
     name: "Lucía Q.",
     avatar: "LQ",
+    avatarUrl: "https://i.pravatar.cc/150?img=44",
     rating: 4.95,
     reviews: 63,
     verifiedId: true,
@@ -333,6 +339,7 @@ export const currentUser = {
   name: "Andrea Salazar",
   handle: "@andreasal",
   avatar: "AS",
+  avatarUrl: "https://i.pravatar.cc/150?img=5",
   verifiedId: true,
   memberSince: "2024",
   ratingBuyer: 4.9,
@@ -347,18 +354,21 @@ export const currentUser = {
 export const testimonials = [
   {
     name: "Miguel A.",
+    avatarUrl: "https://i.pravatar.cc/150?img=14",
     role: "Compró Lima → Cusco",
     quote:
       "Encontré un pasaje a Cusco por S/ 149 con 8 horas de anticipación. El pago quedó retenido hasta que la aerolínea me pasó el ticket a mi nombre. Cero fricción.",
   },
   {
     name: "Renata V.",
+    avatarUrl: "https://i.pravatar.cc/150?img=29",
     role: "Vendió Lima → Piura",
     quote:
       "Recuperé el 70% de un pasaje que iba a perder. Todo el trámite con LATAM se manejó desde la app.",
   },
   {
     name: "Joaquín F.",
+    avatarUrl: "https://i.pravatar.cc/150?img=51",
     role: "Compró Cusco → Lima",
     quote:
       "La sección de última llamada es honesta: te avisa cuánto tiempo real queda para completar el endoso. Nunca sentí que me apuraran a pagar.",

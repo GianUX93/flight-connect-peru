@@ -44,21 +44,21 @@ export function Countdown({ iso, tone = "neutral", className }: Props) {
 
   return (
     <div
-      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-[11px] tabular-nums ${
+      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-[11px] font-bold tabular-nums ${
         warn
-          ? "bg-[color-mix(in_oklab,var(--warn)_22%,transparent)] text-warn"
+          ? "bg-warn text-warn-foreground shadow-sm"
           : "bg-surface-2 text-muted-foreground"
       } ${className ?? ""}`}
     >
       <span
         className={`h-1.5 w-1.5 rounded-full ${
-          warn ? "bg-warn animate-pulse" : "bg-signal"
+          warn ? "bg-warn-foreground animate-pulse" : "bg-signal"
         }`}
       />
       {parts.map((p, i) => (
         <span key={i}>
           {String(p.v).padStart(2, "0")}
-          <span className="text-muted-foreground/70">{p.l}</span>
+          <span className={warn ? "text-warn-foreground/60" : "text-muted-foreground/70"}>{p.l}</span>
         </span>
       ))}
     </div>

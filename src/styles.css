@@ -2,12 +2,10 @@
 @source "../src";
 @import "tw-animate-css";
 
-@custom-variant dark (&:is(.dark *));
-
 /*
  * Traspaso design system.
- * Dark-first, warm neutral base with a single signature "gold sand" accent.
- * Warning tone is a distinct coral for last_call urgency (never used for regular offers).
+ * Light-first, mass-market utility style (inspired by inDrive).
+ * High contrast, bright green/yellow primary, functional look.
  */
 
 @theme inline {
@@ -47,55 +45,62 @@
   --color-surface-2: var(--surface-2);
   --color-hairline: var(--hairline);
 
-  --font-display: "Instrument Serif", ui-serif, Georgia, serif;
+  --font-display: "Sora", ui-sans-serif, system-ui, sans-serif;
   --font-sans:
     "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
 :root {
-  --radius: 0.875rem;
+  --radius: 0.5rem;
 
-  /* Warm near-black base */
-  --background: oklch(0.16 0.008 60);
-  --foreground: oklch(0.97 0.006 80);
+  /* Rediseño: Tokens exactos solicitados */
+  --color-bg: #FFFFFF;
+  --color-ink: #1A1E2B;
+  --color-primary-token: #FF5B49;
+  --color-secondary-token: #00C2A8;
+  --color-warning-token: #FFC93C;
+  --color-accent-token: #7C5CFC;
 
-  --surface: oklch(0.19 0.009 60);
-  --surface-2: oklch(0.22 0.01 60);
-  --hairline: oklch(1 0 0 / 8%);
+  /* Mapeo a sistema base (mantiene retrocompatibilidad) */
+  --background: var(--color-bg);
+  --foreground: var(--color-ink);
 
-  --card: oklch(0.19 0.009 60);
-  --card-foreground: oklch(0.97 0.006 80);
-  --popover: oklch(0.19 0.009 60);
-  --popover-foreground: oklch(0.97 0.006 80);
+  --surface: #FFFFFF;
+  --surface-2: #F7F7F9; /* Gris muy suave para contraste */
+  --hairline: rgba(26, 30, 43, 0.08); /* Ink al 8% */
 
-  /* Primary = foreground-on-foreground (Apple-ish white pill) */
-  --primary: oklch(0.97 0.006 80);
-  --primary-foreground: oklch(0.16 0.008 60);
+  --card: #FFFFFF;
+  --card-foreground: var(--color-ink);
+  --popover: #FFFFFF;
+  --popover-foreground: var(--color-ink);
 
-  --secondary: oklch(0.24 0.01 60);
-  --secondary-foreground: oklch(0.97 0.006 80);
-  --muted: oklch(0.22 0.008 60);
-  --muted-foreground: oklch(0.68 0.015 70);
-  --accent: oklch(0.24 0.01 60);
-  --accent-foreground: oklch(0.97 0.006 80);
+  --primary: var(--color-primary-token);
+  --primary-foreground: #FFFFFF; /* Texto blanco sobre coral */
 
-  /* Signature accent: warm sand-gold */
-  --signal: oklch(0.84 0.13 82);
-  --signal-foreground: oklch(0.18 0.02 60);
+  --secondary: var(--color-secondary-token);
+  --secondary-foreground: #FFFFFF;
+  
+  --muted: #F7F7F9;
+  --muted-foreground: #6B7280;
+  
+  --accent: var(--color-accent-token);
+  --accent-foreground: #FFFFFF;
 
-  /* Warn: last_call coral */
-  --warn: oklch(0.72 0.19 34);
-  --warn-foreground: oklch(0.16 0.008 60);
+  --signal: var(--color-secondary-token); 
+  --signal-foreground: #FFFFFF;
 
-  --success: oklch(0.78 0.14 155);
+  --warn: var(--color-warning-token); 
+  --warn-foreground: var(--color-ink); /* Ink sobre amarillo */
 
-  --destructive: oklch(0.65 0.22 25);
-  --destructive-foreground: oklch(0.97 0.006 80);
+  --success: var(--color-secondary-token);
 
-  --border: oklch(1 0 0 / 9%);
-  --input: oklch(1 0 0 / 12%);
-  --ring: oklch(0.84 0.13 82);
+  --destructive: #DC2626;
+  --destructive-foreground: #FFFFFF;
+
+  --border: rgba(26, 30, 43, 0.1);
+  --input: rgba(26, 30, 43, 0.15);
+  --ring: var(--color-primary-token);
 }
 
 @layer base {
@@ -107,12 +112,12 @@
     background-color: var(--color-background);
     color: var(--color-foreground);
     font-family: var(--font-sans);
-    font-feature-settings: "cv11", "ss01", "ss03";
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }
   .font-display {
-    font-family: var(--font-display);
+    font-family: var(--font-sans);
+    font-weight: 700;
     letter-spacing: -0.02em;
   }
   .hairline {
@@ -120,25 +125,49 @@
   }
 }
 
-@utility grain {
+@utility tarjeta-boleto {
+  /* Signature element: ticket stub with side notches */
   position: relative;
-  &::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    background-image: radial-gradient(
-      oklch(1 0 0 / 3%) 1px,
-      transparent 1px
-    );
-    background-size: 3px 3px;
-    mix-blend-mode: overlay;
-    opacity: 0.4;
+  background-color: var(--color-card);
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+  overflow: hidden;
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  mask-image: radial-gradient(circle at 0 50%, transparent 8px, black 9px),
+              radial-gradient(circle at 100% 50%, transparent 8px, black 9px);
+  mask-composite: intersect;
+  /* fallback for older browsers */
+  -webkit-mask-image: radial-gradient(circle at 0 50%, transparent 8px, black 9px),
+                      radial-gradient(circle at 100% 50%, transparent 8px, black 9px);
+  -webkit-mask-composite: source-in;
+  mask-size: 100% 100%;
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 15px -3px rgba(26, 30, 43, 0.1), 0 4px 6px -2px rgba(26, 30, 43, 0.05);
   }
 }
 
-@utility glow-signal {
-  box-shadow:
-    0 0 0 1px oklch(0.84 0.13 82 / 0.35),
-    0 20px 60px -20px oklch(0.84 0.13 82 / 0.35);
+@utility animate-pulse-last-call {
+  animation: pulse-warn 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes pulse-warn {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.02);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tarjeta-boleto:hover {
+    transform: none;
+  }
+  .animate-pulse-last-call {
+    animation: none;
+  }
 }

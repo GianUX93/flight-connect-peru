@@ -1,24 +1,17 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowRight, ShieldCheck, Lock, Clock3, Sparkles } from "lucide-react";
+import { ArrowRight, ShieldCheck, Lock, Clock3, MapPin, Tag } from "lucide-react";
 import { flights, testimonials } from "@/lib/mock-data";
 import { activeFlights, lastCallFlights } from "@/lib/flight-utils";
 import { FlightCard } from "@/components/site/FlightCard";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useEffect, useRef } from "react";
+import gsap from "gsap";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Traspaso — Vuelos que otros no pueden usar, a mitad de precio para ti" },
-      {
-        name: "description",
-        content:
-          "Marketplace peruano para transferir pasajes aéreos entre personas. Pago retenido hasta confirmar el endoso ante la aerolínea.",
-      },
-      { property: "og:title", content: "Traspaso — Endoso P2P de pasajes aéreos en Perú" },
-      {
-        property: "og:description",
-        content:
-          "Compra o vende pasajes nacionales de último minuto con descuentos reales y pago en escrow.",
-      },
+      { title: "Traspaso — Viaja por el Perú a mitad de precio" },
+      { name: "description", content: "Marketplace peruano para comprar pasajes aéreos endosados." },
     ],
   }),
   component: Landing,
@@ -27,243 +20,172 @@ export const Route = createFileRoute("/")({
 function Landing() {
   const highlighted = activeFlights(flights).slice(0, 4);
   const lastCallCount = lastCallFlights(flights).length;
-  const totalActive = activeFlights(flights).length;
+  
+  const heroRef = useRef<HTMLDivElement>(null);
+  
+  useEffect(() => {
+    if (!heroRef.current) return;
+    const ctx = gsap.context(() => {
+      gsap.from(".hero-elem", {
+        y: 30,
+        opacity: 0,
+        duration: 0.6,
+        stagger: 0.1,
+        ease: "power2.out"
+      });
+      gsap.from(".bento-card", {
+        scale: 0.95,
+        opacity: 0,
+        duration: 0.5,
+        stagger: 0.05,
+        ease: "back.out(1.2)",
+        delay: 0.2
+      });
+    }, heroRef);
+    return () => ctx.revert();
+  }, []);
 
   return (
-    <div>
-      {/* Hero */}
-      <section className="relative overflow-hidden">
-        <div className="absolute inset-0 -z-10">
-          <div
-            className="absolute -top-40 left-1/2 h-[560px] w-[900px] -translate-x-1/2 rounded-full opacity-40 blur-3xl"
-            style={{
-              background:
-                "radial-gradient(closest-side, var(--color-signal), transparent 70%)",
-            }}
-          />
-        </div>
-        <div className="mx-auto max-w-7xl px-4 pb-16 pt-16 sm:px-6 md:pt-24">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <span className="inline-block h-1.5 w-1.5 rounded-full bg-signal" />
-            {totalActive} pasajes disponibles ahora en Perú
+    <div ref={heroRef} className="pb-20">
+      {/* Hero Bento Grid */}
+      <section className="mx-auto max-w-7xl px-4 pt-8 md:pt-12 sm:px-6">
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-4 auto-rows-[180px] md:auto-rows-[240px]">
+          
+          {/* Main Value Prop */}
+          <div className="bento-card md:col-span-8 md:row-span-2 rounded-[2rem] bg-[var(--color-ink)] p-8 md:p-12 text-white flex flex-col justify-center relative overflow-hidden">
+            <div className="relative z-10">
+              <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-xs font-bold uppercase tracking-wider backdrop-blur-md mb-6">
+                <span className="h-2 w-2 rounded-full bg-[var(--color-secondary-token)]" />
+                El marketplace peruano de pasajes
+              </div>
+              <h1 className="font-display text-4xl md:text-6xl font-extrabold leading-[1.1] tracking-tight">
+                Vuelos que otros no pueden usar,<br/>
+                <span className="text-[var(--color-primary-token)]">a mitad de precio.</span>
+              </h1>
+              <p className="mt-4 max-w-md text-gray-300 font-medium">
+                Compra boletos endosados con pago retenido en garantía o publica el tuyo en minutos.
+              </p>
+              <div className="mt-8 flex flex-wrap items-center gap-3">
+                <Link
+                  to="/explore"
+                  className="inline-flex items-center gap-2 rounded-full bg-[var(--color-primary-token)] px-6 py-3 text-sm font-bold text-white transition-transform hover:scale-105"
+                >
+                  Explorar ofertas <ArrowRight className="h-4 w-4" />
+                </Link>
+                <Link
+                  to="/publish"
+                  className="inline-flex items-center gap-2 rounded-full bg-white/10 px-6 py-3 text-sm font-bold text-white hover:bg-white/20 transition-colors"
+                >
+                  Vender mi pasaje
+                </Link>
+              </div>
+            </div>
+            {/* Background Image subtle overlay */}
+            <img src="https://images.unsplash.com/photo-1522814701227-6f8e77a16e5f?w=800&q=80" alt="People traveling" className="absolute inset-0 w-full h-full object-cover opacity-20 mix-blend-overlay" />
           </div>
-          <h1 className="mt-5 max-w-4xl font-display text-5xl leading-[0.95] tracking-tight sm:text-7xl md:text-[92px]">
-            Vuelos que otros no pueden usar,
-            <br />
-            <em className="text-signal">a mitad de precio</em> para ti.
-          </h1>
-          <p className="mt-6 max-w-xl text-lg text-muted-foreground">
-            Traspaso es el marketplace peruano para transferir pasajes aéreos entre
-            personas. Tu pago queda retenido hasta que la aerolínea confirme el endoso
-            a tu nombre.
-          </p>
-          <div className="mt-8 flex flex-wrap items-center gap-3">
-            <Link
-              to="/explore"
-              className="group inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-medium text-primary-foreground transition-transform hover:-translate-y-0.5"
-            >
-              Explorar vuelos disponibles
-              <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-            </Link>
-            <Link
-              to="/publish"
-              className="inline-flex items-center gap-2 rounded-full border border-hairline px-6 py-3 text-sm font-medium hover:bg-surface-2"
-            >
-              Publicar mi pasaje
-            </Link>
+
+          {/* Destino Destacado: Cusco */}
+          <div className="bento-card md:col-span-4 md:row-span-1 rounded-[2rem] relative overflow-hidden group">
+            <img src="https://images.unsplash.com/photo-1587595431973-160d0d94add1?w=800&q=80" alt="Cusco" className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent" />
+            <div className="absolute bottom-6 left-6 text-white">
+              <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest text-white/80 mb-1">
+                <MapPin className="h-3.5 w-3.5" /> Destino Top
+              </div>
+              <div className="font-display text-3xl font-bold">Cusco</div>
+            </div>
           </div>
-          <div className="mt-10 flex flex-wrap items-center gap-x-8 gap-y-3 text-xs text-muted-foreground">
-            <Trust icon={<Lock className="h-3.5 w-3.5" />} text="Pago retenido en escrow" />
-            <Trust icon={<ShieldCheck className="h-3.5 w-3.5" />} text="Endoso verificado con la aerolínea" />
-            <Trust icon={<Sparkles className="h-3.5 w-3.5" />} text="1,842 traspasos completados" />
+
+          {/* Trust Banner */}
+          <div className="bento-card md:col-span-2 md:row-span-1 rounded-[2rem] bg-[var(--color-secondary-token)] p-6 text-white flex flex-col justify-center">
+            <ShieldCheck className="h-8 w-8 mb-3" />
+            <h3 className="font-display font-bold leading-tight">Endoso seguro y validado</h3>
+          </div>
+
+          {/* Promoción */}
+          <div className="bento-card md:col-span-2 md:row-span-1 rounded-[2rem] bg-white border border-border p-6 flex flex-col justify-center shadow-sm">
+            <Tag className="h-7 w-7 text-[var(--color-primary-token)] mb-3" />
+            <h3 className="font-display font-bold text-[var(--color-ink)] leading-tight text-lg">Ahorra hasta 80%</h3>
+            <p className="text-xs text-muted-foreground mt-1 font-medium">En vuelos última llamada</p>
           </div>
         </div>
       </section>
 
       {/* Featured feed */}
-      <section className="border-t border-hairline">
-        <div className="mx-auto max-w-7xl px-4 py-14 sm:px-6">
-          <div className="flex items-end justify-between gap-4">
-            <div>
-              <h2 className="font-display text-3xl md:text-4xl">Disponibles ahora</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Ofertas activas con al menos 24h para completar el endoso.
-              </p>
-            </div>
-            <Link
-              to="/explore"
-              className="hidden items-center gap-1 text-sm text-muted-foreground hover:text-foreground md:inline-flex"
-            >
-              Ver todos <ArrowRight className="h-4 w-4" />
-            </Link>
+      <section className="mx-auto max-w-7xl px-4 py-16 sm:px-6">
+        <div className="flex items-end justify-between gap-4 hero-elem">
+          <div>
+            <h2 className="font-display text-3xl font-extrabold text-[var(--color-ink)]">Disponibles ahora</h2>
+            <p className="mt-2 text-sm text-muted-foreground font-medium">
+              Vuelos confirmados listos para endoso seguro.
+            </p>
           </div>
-          <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {highlighted.map((f) => (
-              <FlightCard key={f.id} flight={f} />
-            ))}
-          </div>
+          <Link
+            to="/explore"
+            className="hidden items-center gap-1 text-sm font-bold text-[var(--color-primary-token)] hover:underline md:inline-flex"
+          >
+            Ver todos <ArrowRight className="h-4 w-4" />
+          </Link>
+        </div>
+        
+        <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-4 hero-elem">
+          {highlighted.map((f) => (
+            <FlightCard key={f.id} flight={f} />
+          ))}
+        </div>
 
-          {lastCallCount > 0 && (
-            <div className="mt-8 flex items-center justify-between rounded-2xl border border-[color-mix(in_oklab,var(--warn)_35%,transparent)] bg-[color-mix(in_oklab,var(--warn)_6%,transparent)] px-5 py-4">
-              <div className="flex items-center gap-3">
-                <Clock3 className="h-5 w-5 text-warn" />
+        {lastCallCount > 0 && (
+          <div className="mt-8 hero-elem">
+            <div className="flex items-center justify-between rounded-2xl border border-[var(--color-warning-token)] bg-yellow-50 px-6 py-5 shadow-sm">
+              <div className="flex items-center gap-4">
+                <div className="bg-[var(--color-warning-token)] p-3 rounded-full">
+                  <Clock3 className="h-6 w-6 text-[var(--color-ink)]" />
+                </div>
                 <div>
-                  <div className="text-sm font-medium text-warn">
-                    {lastCallCount} pasajes en última llamada
+                  <div className="text-base font-bold text-[var(--color-ink)]">
+                    {lastCallCount} pasajes en <span className="uppercase tracking-widest text-xs ml-1">Última Llamada</span>
                   </div>
-                  <div className="text-xs text-muted-foreground">
-                    Salen en menos de 24h. Sección separada con advertencia de tiempo real para el trámite.
+                  <div className="text-sm font-medium text-[var(--color-ink)]/70 mt-0.5">
+                    Salen en menos de 24h. Ofertas más agresivas con trámite inmediato.
                   </div>
                 </div>
               </div>
               <Link
                 to="/explore"
                 search={{ mode: "flexible", lane: "last_call" } as never}
-                className="text-sm text-warn hover:underline"
+                className="rounded-full bg-[var(--color-ink)] px-6 py-2.5 text-sm font-bold text-white hover:bg-black transition-colors"
               >
-                Ver ahora
-              </Link>
-            </div>
-          )}
-        </div>
-      </section>
-
-      {/* How it works */}
-      <section className="border-t border-hairline bg-surface/40">
-        <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6">
-          <div className="grid gap-10 md:grid-cols-2">
-            <HowColumn
-              tone="signal"
-              title="Para compradores"
-              steps={[
-                ["Encuentra un pasaje", "Filtra por ruta, fecha o mira las ofertas del día."],
-                ["Paga con protección", "Tu dinero queda retenido, no llega al vendedor todavía."],
-                ["Recibe el boleto a tu nombre", "Liberamos el pago solo cuando la aerolínea confirma."],
-              ]}
-            />
-            <HowColumn
-              tone="neutral"
-              title="Para quien vende"
-              steps={[
-                ["Publica en 2 minutos", "Sube tu código de reserva y define tu precio."],
-                ["Recibe interesados", "Verificamos su identidad antes del pago."],
-                ["Cobra al confirmar", "Cuando el endoso queda registrado, liberamos tu dinero."],
-              ]}
-            />
-          </div>
-        </div>
-      </section>
-
-      {/* Social proof */}
-      <section className="border-t border-hairline">
-        <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6">
-          <div className="grid gap-6 md:grid-cols-3">
-            {testimonials.map((t) => (
-              <figure
-                key={t.name}
-                className="flex flex-col justify-between rounded-2xl border border-hairline bg-surface p-6"
-              >
-                <blockquote className="font-display text-lg leading-snug">
-                  "{t.quote}"
-                </blockquote>
-                <figcaption className="mt-6 text-sm">
-                  <div className="text-foreground">{t.name}</div>
-                  <div className="text-muted-foreground">{t.role}</div>
-                </figcaption>
-              </figure>
-            ))}
-          </div>
-          <div className="mt-10 grid grid-cols-2 gap-4 sm:grid-cols-4">
-            <Stat n="1,842" label="Traspasos completados" />
-            <Stat n="S/ 486k" label="Retenidos y liberados" />
-            <Stat n="4.9 ★" label="Rating promedio" />
-            <Stat n="< 2h" label="Tiempo medio de endoso" />
-          </div>
-        </div>
-      </section>
-
-      {/* CTA */}
-      <section className="border-t border-hairline">
-        <div className="mx-auto max-w-7xl px-4 py-20 sm:px-6">
-          <div className="rounded-3xl border border-hairline bg-surface p-10 md:p-16">
-            <h3 className="max-w-2xl font-display text-4xl leading-tight md:text-5xl">
-              ¿Tienes un vuelo que ya no puedes tomar?{" "}
-              <span className="text-signal">Recupera hasta el 80%.</span>
-            </h3>
-            <div className="mt-6 flex flex-wrap gap-3">
-              <Link
-                to="/publish"
-                className="inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-medium text-primary-foreground"
-              >
-                Publicar mi pasaje <ArrowRight className="h-4 w-4" />
-              </Link>
-              <Link
-                to="/trust"
-                className="inline-flex items-center gap-2 rounded-full border border-hairline px-6 py-3 text-sm"
-              >
-                Ver cómo protegemos el trámite
+                Ver urgentes
               </Link>
             </div>
           </div>
+        )}
+      </section>
+      
+      {/* Testimonials */}
+      <section className="mx-auto max-w-7xl px-4 pb-16 sm:px-6 hero-elem border-t border-dashed border-border pt-16">
+        <h2 className="font-display text-3xl font-extrabold text-[var(--color-ink)] mb-8 text-center">Viajeros que ya traspasaron</h2>
+        <div className="grid gap-6 md:grid-cols-3">
+          {testimonials.map((t) => (
+            <figure key={t.name} className="flex flex-col justify-between rounded-[2rem] bg-white border border-border p-8 shadow-sm">
+              <blockquote className="font-sans text-lg font-medium leading-snug text-[var(--color-ink)]">
+                "{t.quote}"
+              </blockquote>
+              <figcaption className="mt-6 text-sm flex items-center gap-3">
+                <Avatar className="h-10 w-10 border border-border">
+                  <AvatarImage src={t.avatarUrl} alt={t.name} />
+                  <AvatarFallback className="font-bold text-gray-500">{t.name[0]}</AvatarFallback>
+                </Avatar>
+                <div>
+                  <div className="text-[var(--color-ink)] font-bold">{t.name}</div>
+                  <div className="text-muted-foreground font-medium text-xs">{t.role}</div>
+                </div>
+              </figcaption>
+            </figure>
+          ))}
         </div>
       </section>
     </div>
   );
 }
 
-function Trust({ icon, text }: { icon: React.ReactNode; text: string }) {
-  return (
-    <div className="flex items-center gap-2">
-      <span className="grid h-6 w-6 place-items-center rounded-full bg-surface-2 text-signal">
-        {icon}
-      </span>
-      {text}
-    </div>
-  );
-}
-
-function HowColumn({
-  title,
-  steps,
-  tone,
-}: {
-  title: string;
-  steps: [string, string][];
-  tone: "signal" | "neutral";
-}) {
-  return (
-    <div className="rounded-3xl border border-hairline bg-surface p-8">
-      <div className="mb-6 text-xs uppercase tracking-widest text-muted-foreground">
-        {title}
-      </div>
-      <ol className="space-y-6">
-        {steps.map(([t, d], i) => (
-          <li key={t} className="flex gap-4">
-            <span
-              className={`grid h-8 w-8 shrink-0 place-items-center rounded-full font-display text-lg ${
-                tone === "signal"
-                  ? "bg-signal text-[var(--color-signal-foreground)]"
-                  : "border border-hairline text-foreground"
-              }`}
-            >
-              {i + 1}
-            </span>
-            <div>
-              <div className="font-display text-2xl leading-tight">{t}</div>
-              <div className="mt-1 text-sm text-muted-foreground">{d}</div>
-            </div>
-          </li>
-        ))}
-      </ol>
-    </div>
-  );
-}
-
-function Stat({ n, label }: { n: string; label: string }) {
-  return (
-    <div className="rounded-2xl border border-hairline bg-surface px-5 py-4">
-      <div className="font-display text-3xl">{n}</div>
-      <div className="text-xs text-muted-foreground">{label}</div>
-    </div>
-  );
-}

@@ -7,9 +7,10 @@ import {
   fmtDay,
   fmtTime,
   S,
-  airlineTint,
+  airlineLogo,
 } from "@/lib/flight-utils";
 import { Countdown } from "./Countdown";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 /**
  * FlightCard. Renderiza SOLO ofertas active o last_call.
@@ -28,69 +29,78 @@ export function FlightCard({ flight, variant = "active" }: { flight: Flight; var
     <Link
       to="/flight/$id"
       params={{ id: flight.id }}
-      className={`group relative flex flex-col overflow-hidden rounded-2xl border transition-all ${
+      className={`group tarjeta-boleto block ${
         isWarn
-          ? "border-[color-mix(in_oklab,var(--warn)_40%,transparent)] bg-[color-mix(in_oklab,var(--warn)_5%,var(--surface))]"
-          : "border-hairline bg-surface hover:border-signal/40 hover:bg-surface-2"
+          ? "border-[color-mix(in_srgb,var(--color-warning-token)_40%,transparent)] bg-[color-mix(in_srgb,var(--color-warning-token)_5%,#FFFFFF)]"
+          : ""
       }`}
     >
       {isWarn && (
-        <div className="flex items-center justify-between border-b border-[color-mix(in_oklab,var(--warn)_30%,transparent)] bg-[color-mix(in_oklab,var(--warn)_10%,transparent)] px-4 py-2 text-[11px] font-medium uppercase tracking-wider text-warn">
-          <span>Última llamada · trámite de endoso ajustado</span>
-          <Countdown iso={flight.departureAt} tone="warn" />
+        <div className="flex items-center justify-between border-b border-[color-mix(in_srgb,var(--color-warning-token)_30%,transparent)] bg-[color-mix(in_srgb,var(--color-warning-token)_15%,transparent)] px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-[var(--color-ink)]">
+          <span className="flex items-center gap-1.5"><span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--color-warning-token)] opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-[var(--color-warning-token)]"></span></span> Última llamada</span>
+          <div className="font-mono text-[10px] animate-pulse-last-call"><Countdown iso={flight.departureAt} tone="warn" /></div>
         </div>
       )}
 
-      <div className="flex items-start justify-between gap-3 p-4">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 text-[11px] uppercase tracking-widest text-muted-foreground">
-            <span
-              className="h-2 w-2 rounded-full"
-              style={{ backgroundColor: airlineTint(flight.airline) }}
-            />
-            {flight.airline} · {flight.flightNumber}
-          </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="font-display text-3xl leading-none">{flight.origin.code}</span>
-            <Plane className="h-3.5 w-3.5 -rotate-45 text-muted-foreground" />
-            <span className="font-display text-3xl leading-none">{flight.destination.code}</span>
-          </div>
-          <div className="mt-1 text-sm text-muted-foreground">
-            {flight.origin.city} → {flight.destination.city}
-          </div>
-          <div className="mt-3 flex items-center gap-3 text-xs text-muted-foreground">
-            <span>{fmtDay(flight.departureAt)}</span>
-            <span className="h-0.5 w-0.5 rounded-full bg-muted-foreground/50" />
-            <span>{fmtTime(flight.departureAt)}</span>
-            <span className="h-0.5 w-0.5 rounded-full bg-muted-foreground/50" />
-            <span>{flight.durationMin}m</span>
-          </div>
+      <div className="p-5">
+        <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
+          <img
+            src={airlineLogo(flight.airline)}
+            alt={flight.airline}
+            className="h-3.5 w-auto max-w-[64px] object-contain"
+          />
+          <span className="truncate">{flight.airline}</span>
+          <span className="font-mono shrink-0">{flight.flightNumber}</span>
+        </div>
+        <div className="mt-4 flex items-baseline gap-3">
+          <span className="font-display text-3xl leading-none font-bold text-[var(--color-ink)]">{flight.origin.code}</span>
+          <Plane className="h-4 w-4 shrink-0 text-[var(--color-primary-token)]" />
+          <span className="font-display text-3xl leading-none font-bold text-[var(--color-ink)]">{flight.destination.code}</span>
+        </div>
+        <div className="mt-1.5 text-sm text-muted-foreground font-medium truncate">
+          {flight.origin.city} → {flight.destination.city}
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-mono text-muted-foreground">
+          <span className="text-[var(--color-ink)]">{fmtDay(flight.departureAt)}</span>
+          <span className="h-1 w-1 rounded-full bg-muted-foreground/30" />
+          <span className="text-[var(--color-ink)]">{fmtTime(flight.departureAt)}</span>
+          <span className="h-1 w-1 rounded-full bg-muted-foreground/30" />
+          <span>{flight.durationMin}m</span>
         </div>
 
-        <div className="text-right">
-          <div className="text-[11px] text-muted-foreground line-through">
-            {S(flight.originalPrice)}
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-dashed border-border pt-4">
+          <div className="flex items-baseline gap-2">
+            <span className="text-xs text-muted-foreground line-through font-mono">
+              {S(flight.originalPrice)}
+            </span>
+            <span className="font-mono text-2xl font-semibold leading-none text-[var(--color-primary-token)]">
+              {S(flight.resalePrice)}
+            </span>
           </div>
-          <div className="font-display text-3xl leading-none text-foreground">
-            {S(flight.resalePrice)}
-          </div>
-          <div className="mt-1 inline-block rounded-full bg-signal px-2 py-0.5 text-[11px] font-medium text-[var(--color-signal-foreground)]">
-            −{discountPct(flight)}%
+          <div className="inline-block shrink-0 rounded-md bg-[var(--color-secondary-token)] px-2 py-1 text-[11px] font-bold text-white shadow-sm">
+            −{discountPct(flight)}% DTO
           </div>
         </div>
       </div>
 
-      <div className="flex items-center justify-between border-t border-hairline px-4 py-3 text-xs text-muted-foreground">
-        <div className="flex items-center gap-2">
-          <span className="grid h-6 w-6 place-items-center rounded-full bg-surface-2 text-[10px] font-medium text-foreground">
-            {flight.seller.avatar}
+      <div className="flex items-center justify-between gap-2 border-t border-dashed border-border px-5 py-3 text-xs text-muted-foreground bg-[var(--surface-2)]">
+        <div className="flex min-w-0 items-center gap-2">
+          <Avatar className="h-6 w-6 shrink-0 border border-border shadow-sm">
+            <AvatarImage src={flight.seller.avatarUrl} alt={flight.seller.name} />
+            <AvatarFallback className="text-[10px] font-bold text-[var(--color-ink)]">
+              {flight.seller.avatar}
+            </AvatarFallback>
+          </Avatar>
+          <span className="min-w-0 truncate font-medium text-[var(--color-ink)]">
+            {flight.seller.name} <span className="text-muted-foreground font-normal">· ★ {flight.seller.rating.toFixed(1)}</span>
           </span>
-          <span>
-            {flight.seller.name} · ★ {flight.seller.rating.toFixed(1)}
-          </span>
-          {flight.seller.verifiedId && <ShieldCheck className="h-3.5 w-3.5 text-signal" />}
+          {flight.seller.verifiedId && <ShieldCheck className="h-4 w-4 shrink-0 text-[var(--color-secondary-token)]" />}
         </div>
-        {!isWarn && status === "active" && <Countdown iso={flight.departureAt} />}
+        {!isWarn && status === "active" && (
+          <div className="shrink-0 font-mono text-[10px] text-[var(--color-secondary-token)] font-medium">
+            <Countdown iso={flight.departureAt} />
+          </div>
+        )}
       </div>
     </Link>
   );

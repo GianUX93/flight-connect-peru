@@ -56,13 +56,13 @@ export const fmtTime = (iso: string) =>
     new Date(iso),
   );
 
-export function airlineTint(a: Flight["airline"]): string {
+export function airlineLogo(a: Flight["airline"]): string {
   switch (a) {
     case "LATAM":
-      return "oklch(0.72 0.14 340)";
+      return "https://upload.wikimedia.org/wikipedia/commons/f/fe/Latam-logo_-v_%28Indigo%29.svg";
     case "Sky Airline":
-      return "oklch(0.78 0.13 220)";
+      return "https://upload.wikimedia.org/wikipedia/commons/6/65/Sky_Airline_Logo.svg";
     case "JetSmart":
-      return "oklch(0.82 0.16 60)";
+      return "https://upload.wikimedia.org/wikipedia/commons/f/fb/Logo_JetSmart.svg";
   }
 }
