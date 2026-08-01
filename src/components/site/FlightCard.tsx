@@ -8,6 +8,8 @@ import {
   fmtTime,
   S,
   airlineLogo,
+  tramoVigente,
+  tramoAVenderLabel,
 } from "@/lib/flight-utils";
 import { Countdown } from "./Countdown";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -24,6 +26,7 @@ export function FlightCard({ flight, variant = "active" }: { flight: Flight; var
   if (variant === "last_call" && status !== "last_call") return null;
 
   const isWarn = status === "last_call";
+  const tramo = tramoVigente(flight);
 
   return (
     <Link
@@ -38,7 +41,7 @@ export function FlightCard({ flight, variant = "active" }: { flight: Flight; var
       {isWarn && (
         <div className="flex items-center justify-between border-b border-[color-mix(in_srgb,var(--color-warning-token)_30%,transparent)] bg-[color-mix(in_srgb,var(--color-warning-token)_15%,transparent)] px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-[var(--color-ink)]">
           <span className="flex items-center gap-1.5"><span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--color-warning-token)] opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-[var(--color-warning-token)]"></span></span> Última llamada</span>
-          <div className="font-mono text-[10px] animate-pulse-last-call"><Countdown iso={flight.departureAt} tone="warn" /></div>
+          <div className="font-mono text-[10px] animate-pulse-last-call"><Countdown iso={tramo.departureAt} tone="warn" /></div>
         </div>
       )}
 
@@ -51,21 +54,36 @@ export function FlightCard({ flight, variant = "active" }: { flight: Flight; var
           />
           <span className="truncate">{flight.airline}</span>
           <span className="font-mono shrink-0">{flight.flightNumber}</span>
+          {flight.asiento.tipo === "seleccionado" && flight.asiento.categoria === "ventana" && (
+            <span className="ml-auto shrink-0 rounded-full bg-[var(--color-secondary-token)]/10 px-2 py-0.5 text-[10px] font-bold normal-case tracking-normal text-[var(--color-secondary-token)]">
+              🪟 Ventana confirmada
+            </span>
+          )}
+          {flight.asiento.tipo === "aleatorio" && (
+            <span className="ml-auto shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-bold normal-case tracking-normal text-gray-500">
+              Asiento aleatorio
+            </span>
+          )}
         </div>
         <div className="mt-4 flex items-baseline gap-3">
-          <span className="font-display text-3xl leading-none font-bold text-[var(--color-ink)]">{flight.origin.code}</span>
+          <span className="font-display text-3xl leading-none font-bold text-[var(--color-ink)]">{tramo.origin.code}</span>
           <Plane className="h-4 w-4 shrink-0 text-[var(--color-primary-token)]" />
-          <span className="font-display text-3xl leading-none font-bold text-[var(--color-ink)]">{flight.destination.code}</span>
+          <span className="font-display text-3xl leading-none font-bold text-[var(--color-ink)]">{tramo.destination.code}</span>
+          {flight.tipoBoleto === "ida_y_vuelta" && (
+            <span className="ml-auto shrink-0 rounded-full bg-gray-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-gray-500">
+              {tramoAVenderLabel(flight.tramoAVender)}
+            </span>
+          )}
         </div>
         <div className="mt-1.5 text-sm text-muted-foreground font-medium truncate">
-          {flight.origin.city} → {flight.destination.city}
+          {tramo.origin.city} → {tramo.destination.city}
         </div>
         <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-mono text-muted-foreground">
-          <span className="text-[var(--color-ink)]">{fmtDay(flight.departureAt)}</span>
+          <span className="text-[var(--color-ink)]">{fmtDay(tramo.departureAt)}</span>
           <span className="h-1 w-1 rounded-full bg-muted-foreground/30" />
-          <span className="text-[var(--color-ink)]">{fmtTime(flight.departureAt)}</span>
+          <span className="text-[var(--color-ink)]">{fmtTime(tramo.departureAt)}</span>
           <span className="h-1 w-1 rounded-full bg-muted-foreground/30" />
-          <span>{flight.durationMin}m</span>
+          <span>{tramo.durationMin}m</span>
         </div>
 
         <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-dashed border-border pt-4">
@@ -98,7 +116,7 @@ export function FlightCard({ flight, variant = "active" }: { flight: Flight; var
         </div>
         {!isWarn && status === "active" && (
           <div className="shrink-0 font-mono text-[10px] text-[var(--color-secondary-token)] font-medium">
-            <Countdown iso={flight.departureAt} />
+            <Countdown iso={tramo.departureAt} />
           </div>
         )}
       </div>

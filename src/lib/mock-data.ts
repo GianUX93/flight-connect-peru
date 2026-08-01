@@ -1,5 +1,6 @@
 // Mock inventory for the Traspaso prototype.
-// Status is computed relative to `departureAt` and the persisted business flag `sellerAllowsLastCall`.
+// Status is computed relative to the departure of the tramo actually being sold
+// (see `tramoVigente` in flight-utils) and the persisted business flag `sellerAllowsLastCall`.
 // - active: > 24h to departure and endoso is viable
 // - last_call: < 24h but seller opted to keep it available (separate lane)
 // - expired: departure passed OR sellerAllowsLastCall=false and <24h
@@ -11,6 +12,85 @@ export interface Airport {
   city: string;
   region: string;
 }
+
+// Un tramo (ida o regreso) tal como lo carga el vendedor al publicar.
+export interface FlightSegment {
+  origin: Airport;
+  destination: Airport;
+  departureAt: string; // ISO — fecha + hora de salida
+  durationMin: number;
+}
+
+export type TipoBoleto = "solo_ida" | "ida_y_vuelta";
+// Una sola oferta, un solo comprador: qué tramo(s) incluye esta publicación específica.
+export type TramoAVender = "ida" | "regreso" | "ambos";
+
+export interface DatosPasajero {
+  nombres: string;
+  apellidoPaterno: string;
+  apellidoMaterno: string;
+  email: string;
+  telefono: string;
+}
+
+// En tarifas de asiento aleatorio, la aerolínea recién asigna el asiento en el boarding
+// pass (~24h antes del vuelo) — el mismo momento en que se cierra la ventana legal del
+// endoso. No hay ningún momento válido en el que este dato pueda "completarse después"
+// mientras el pasaje siga siendo vendible, así que se resuelve por completo al publicar,
+// sin ningún estado "pendiente".
+export type AsientoTipo = "seleccionado" | "aleatorio";
+export type AsientoCategoria = "ventana" | "medio" | "pasillo";
+
+export interface Asiento {
+  tipo: AsientoTipo;
+  categoria: AsientoCategoria | null; // obligatorio si tipo="seleccionado", siempre null si "aleatorio"
+  numero: string | null; // opcional, solo si tipo="seleccionado"
+}
+
+// Estimado privado del vendedor al publicar — nunca requiere evidencia, nunca lo ve
+// el comprador, y solo alimenta el "neto estimado" que se muestra al publicar.
+export interface CargoAerolineaEstimado {
+  monto: number | null;
+  ingresadoPorVendedor: boolean;
+  verificado: false;
+}
+
+export const cargoAerolineaEstimadoDefault = (): CargoAerolineaEstimado => ({
+  monto: null,
+  ingresadoPorVendedor: false,
+  verificado: false,
+});
+
+// Ley N° 32325 (may. 2025): el endoso de un pasaje nacional (hasta 24h antes del vuelo)
+// es gratuito, incluida la emisión del nuevo boleto — línea base legal S/ 0 para las 3 aerolíneas.
+// Este monto CONFIRMADO solo existe una vez que hay comprador y trámite en curso (ver
+// Transaction.cargoAerolineaConfirmado): el vendedor puede reportar que le cobraron durante
+// el trámite, pero el monto solo entra al cálculo del neto final una vez "aceptado" tras
+// revisión — nunca mientras esté pendiente o rechazado.
+export type CargoAerolineaOrigen = "default_legal" | "reportado_por_vendedor";
+export type CargoAerolineaEstado = "no_aplica" | "pendiente_revision" | "aceptado" | "rechazado";
+
+export interface CargoAerolineaConfirmado {
+  monto: number;
+  origen: CargoAerolineaOrigen;
+  evidenciaUrl: string | null;
+  estadoVerificacion: CargoAerolineaEstado;
+  momentoDisponible: "confirmado_en_tramite";
+  // true cuando el monto reportado superó el 50% del precio de venta al momento de
+  // reportarlo — protección contra error de tipeo o evidencia manipulada. Un cargo así
+  // nunca se acepta automáticamente aunque tenga evidencia adjunta; requiere que el panel
+  // de revisión lo apruebe explícitamente.
+  revisionManualRequerida: boolean;
+}
+
+export const cargoAerolineaConfirmadoDefault = (): CargoAerolineaConfirmado => ({
+  monto: 0,
+  origen: "default_legal",
+  evidenciaUrl: null,
+  estadoVerificacion: "no_aplica",
+  momentoDisponible: "confirmado_en_tramite",
+  revisionManualRequerida: false,
+});
 
 export interface Seller {
   id: string;
@@ -25,22 +105,24 @@ export interface Seller {
 
 export interface Flight {
   id: string;
-  origin: Airport;
-  destination: Airport;
+  tipoBoleto: TipoBoleto;
+  tramoIda: FlightSegment;
+  tramoRegreso: FlightSegment | null; // solo existe si tipoBoleto = "ida_y_vuelta"
+  tramoAVender: TramoAVender;
   airline: "LATAM" | "Sky Airline" | "JetSmart";
   flightNumber: string;
-  departureAt: string; // ISO
-  durationMin: number;
   originalPrice: number; // soles
   resalePrice: number; // soles
   baggage: "solo cabina" | "23kg incluido" | "cabina + 23kg";
-  seat: string;
+  asiento: Asiento;
   seller: Seller;
   sellerAllowsLastCall: boolean; // when <24h, whether it enters last_call lane
   createdAt: string;
   views: number;
   interested: number;
   note?: string;
+  datosPasajero: DatosPasajero;
+  cargoAerolineaEstimado: CargoAerolineaEstimado;
 }
 
 const airports: Record<string, Airport> = {
@@ -109,193 +191,349 @@ const sellers: Seller[] = [
 
 const hoursFromNow = (h: number) => new Date(Date.now() + h * 3600_000).toISOString();
 
+// Datos del titular actual del boleto (no el futuro comprador) — necesarios para el
+// trámite real de endoso con la aerolínea más adelante.
+const pasajeros: Record<string, DatosPasajero> = {
+  camila: {
+    nombres: "Camila",
+    apellidoPaterno: "Ramírez",
+    apellidoMaterno: "Torres",
+    email: "camila.ramirez@correo.pe",
+    telefono: "+51 987 654 321",
+  },
+  diego: {
+    nombres: "Diego",
+    apellidoPaterno: "Medina",
+    apellidoMaterno: "Flores",
+    email: "diego.medina@correo.pe",
+    telefono: "+51 976 543 210",
+  },
+  valeria: {
+    nombres: "Valeria",
+    apellidoPaterno: "Paredes",
+    apellidoMaterno: "Rojas",
+    email: "valeria.paredes@correo.pe",
+    telefono: "+51 965 432 109",
+  },
+  rodrigo: {
+    nombres: "Rodrigo",
+    apellidoPaterno: "Alvarado",
+    apellidoMaterno: "Campos",
+    email: "rodrigo.alvarado@correo.pe",
+    telefono: "+51 954 321 098",
+  },
+  lucia: {
+    nombres: "Lucía",
+    apellidoPaterno: "Quispe",
+    apellidoMaterno: "Vargas",
+    email: "lucia.quispe@correo.pe",
+    telefono: "+51 943 210 987",
+  },
+};
+
 export const flights: Flight[] = [
   {
     id: "f-001",
-    origin: airports.LIM,
-    destination: airports.CUZ,
+    tipoBoleto: "solo_ida",
+    tramoIda: {
+      origin: airports.LIM,
+      destination: airports.CUZ,
+      departureAt: hoursFromNow(72),
+      durationMin: 85,
+    },
+    tramoRegreso: null,
+    tramoAVender: "ida",
     airline: "LATAM",
     flightNumber: "LA 2043",
-    departureAt: hoursFromNow(72),
-    durationMin: 85,
     originalPrice: 480,
     resalePrice: 219,
     baggage: "cabina + 23kg",
-    seat: "12A ventana",
+    asiento: { tipo: "seleccionado", categoria: "ventana", numero: "12A" },
     seller: sellers[0],
     sellerAllowsLastCall: true,
     createdAt: hoursFromNow(-8),
     views: 214,
     interested: 18,
     note: "Cambio de planes familiares. Endoso permitido sin costo por LATAM.",
+    datosPasajero: pasajeros.camila,
+    cargoAerolineaEstimado: cargoAerolineaEstimadoDefault(),
   },
   {
     id: "f-002",
-    origin: airports.LIM,
-    destination: airports.AQP,
+    tipoBoleto: "solo_ida",
+    tramoIda: {
+      origin: airports.LIM,
+      destination: airports.AQP,
+      departureAt: hoursFromNow(48),
+      durationMin: 100,
+    },
+    tramoRegreso: null,
+    tramoAVender: "ida",
     airline: "Sky Airline",
     flightNumber: "H2 831",
-    departureAt: hoursFromNow(48),
-    durationMin: 100,
     originalPrice: 310,
     resalePrice: 149,
     baggage: "solo cabina",
-    seat: "18C pasillo",
+    asiento: { tipo: "seleccionado", categoria: "pasillo", numero: "18C" },
     seller: sellers[1],
     sellerAllowsLastCall: true,
     createdAt: hoursFromNow(-4),
     views: 98,
     interested: 9,
+    datosPasajero: pasajeros.diego,
+    cargoAerolineaEstimado: { monto: 25, ingresadoPorVendedor: true, verificado: false },
   },
   {
     id: "f-003",
-    origin: airports.LIM,
-    destination: airports.PIU,
+    tipoBoleto: "solo_ida",
+    tramoIda: {
+      origin: airports.LIM,
+      destination: airports.PIU,
+      departureAt: hoursFromNow(120),
+      durationMin: 105,
+    },
+    tramoRegreso: null,
+    tramoAVender: "ida",
     airline: "JetSmart",
     flightNumber: "JA 411",
-    departureAt: hoursFromNow(120),
-    durationMin: 105,
     originalPrice: 265,
     resalePrice: 129,
     baggage: "solo cabina",
-    seat: "07F ventana",
+    asiento: { tipo: "seleccionado", categoria: "ventana", numero: "07F" },
     seller: sellers[2],
     sellerAllowsLastCall: true,
     createdAt: hoursFromNow(-22),
     views: 341,
     interested: 24,
+    datosPasajero: pasajeros.valeria,
+    cargoAerolineaEstimado: cargoAerolineaEstimadoDefault(),
   },
   {
     id: "f-004",
-    origin: airports.LIM,
-    destination: airports.IQT,
+    // Ida y vuelta, se vende como una sola oferta con ambos tramos.
+    tipoBoleto: "ida_y_vuelta",
+    tramoIda: {
+      origin: airports.LIM,
+      destination: airports.IQT,
+      departureAt: hoursFromNow(200),
+      durationMin: 115,
+    },
+    tramoRegreso: {
+      origin: airports.IQT,
+      destination: airports.LIM,
+      departureAt: hoursFromNow(272),
+      durationMin: 115,
+    },
+    tramoAVender: "ambos",
     airline: "LATAM",
     flightNumber: "LA 2401",
-    departureAt: hoursFromNow(200),
-    durationMin: 115,
     originalPrice: 520,
     resalePrice: 289,
     baggage: "23kg incluido",
-    seat: "22B centro",
+    asiento: { tipo: "seleccionado", categoria: "medio", numero: "22B" },
     seller: sellers[4],
     sellerAllowsLastCall: true,
     createdAt: hoursFromNow(-2),
     views: 66,
     interested: 4,
+    datosPasajero: pasajeros.lucia,
+    cargoAerolineaEstimado: { monto: 18, ingresadoPorVendedor: true, verificado: false },
   },
   {
     id: "f-005",
-    origin: airports.CUZ,
-    destination: airports.LIM,
+    // Ida y vuelta, pero esta oferta vende SOLO el tramo de regreso (el de ida ya voló).
+    // Prueba clave: el countdown/estado se calcula sobre tramoRegreso, no sobre tramoIda.
+    tipoBoleto: "ida_y_vuelta",
+    tramoIda: {
+      origin: airports.LIM,
+      destination: airports.CUZ,
+      departureAt: hoursFromNow(-50),
+      durationMin: 85,
+    },
+    tramoRegreso: {
+      origin: airports.CUZ,
+      destination: airports.LIM,
+      departureAt: hoursFromNow(19),
+      durationMin: 90,
+    }, // last_call
+    tramoAVender: "regreso",
     airline: "Sky Airline",
     flightNumber: "H2 214",
-    departureAt: hoursFromNow(19), // last_call
-    durationMin: 90,
     originalPrice: 360,
     resalePrice: 139,
     baggage: "solo cabina",
-    seat: "09D pasillo",
+    asiento: { tipo: "seleccionado", categoria: "pasillo", numero: "09D" },
     seller: sellers[0],
     sellerAllowsLastCall: true,
     createdAt: hoursFromNow(-3),
     views: 402,
     interested: 31,
     note: "Ya no puedo tomarlo. Endoso rápido, respondo en minutos.",
+    datosPasajero: pasajeros.camila,
+    cargoAerolineaEstimado: cargoAerolineaEstimadoDefault(),
   },
   {
     id: "f-006",
-    origin: airports.LIM,
-    destination: airports.TRU,
+    tipoBoleto: "solo_ida",
+    tramoIda: {
+      origin: airports.LIM,
+      destination: airports.TRU,
+      departureAt: hoursFromNow(9),
+      durationMin: 75,
+    }, // last_call, close margin
+    tramoRegreso: null,
+    tramoAVender: "ida",
     airline: "JetSmart",
     flightNumber: "JA 502",
-    departureAt: hoursFromNow(9), // last_call, close margin
-    durationMin: 75,
     originalPrice: 220,
     resalePrice: 79,
     baggage: "solo cabina",
-    seat: "14A ventana",
+    asiento: { tipo: "aleatorio", categoria: null, numero: null },
     seller: sellers[3],
     sellerAllowsLastCall: true,
     createdAt: hoursFromNow(-1),
     views: 89,
     interested: 6,
+    datosPasajero: pasajeros.rodrigo,
+    cargoAerolineaEstimado: cargoAerolineaEstimadoDefault(),
   },
   {
     id: "f-007",
-    origin: airports.LIM,
-    destination: airports.TPP,
+    tipoBoleto: "solo_ida",
+    tramoIda: {
+      origin: airports.LIM,
+      destination: airports.TPP,
+      departureAt: hoursFromNow(-6),
+      durationMin: 95,
+    }, // expired (past)
+    tramoRegreso: null,
+    tramoAVender: "ida",
     airline: "LATAM",
     flightNumber: "LA 2311",
-    departureAt: hoursFromNow(-6), // expired (past)
-    durationMin: 95,
     originalPrice: 410,
     resalePrice: 179,
     baggage: "cabina + 23kg",
-    seat: "05C pasillo",
+    asiento: { tipo: "seleccionado", categoria: "pasillo", numero: "05C" },
     seller: sellers[1],
     sellerAllowsLastCall: true,
     createdAt: hoursFromNow(-40),
     views: 512,
     interested: 22,
+    datosPasajero: pasajeros.diego,
+    cargoAerolineaEstimado: cargoAerolineaEstimadoDefault(),
   },
   {
     id: "f-008",
-    origin: airports.LIM,
-    destination: airports.CIX,
+    tipoBoleto: "solo_ida",
+    tramoIda: {
+      origin: airports.LIM,
+      destination: airports.CIX,
+      departureAt: hoursFromNow(14),
+      durationMin: 80,
+    },
+    tramoRegreso: null,
+    tramoAVender: "ida",
     airline: "Sky Airline",
     flightNumber: "H2 640",
-    departureAt: hoursFromNow(14),
-    durationMin: 80,
     originalPrice: 240,
     resalePrice: 99,
     baggage: "solo cabina",
-    seat: "16E centro",
+    asiento: { tipo: "aleatorio", categoria: null, numero: null },
     seller: sellers[4],
     sellerAllowsLastCall: false, // <24h and seller withdrew → expired for the marketplace
     createdAt: hoursFromNow(-10),
     views: 61,
     interested: 2,
+    datosPasajero: pasajeros.lucia,
+    cargoAerolineaEstimado: cargoAerolineaEstimadoDefault(),
   },
   {
     id: "f-009",
-    origin: airports.AQP,
-    destination: airports.LIM,
+    tipoBoleto: "solo_ida",
+    tramoIda: {
+      origin: airports.AQP,
+      destination: airports.LIM,
+      departureAt: hoursFromNow(96),
+      durationMin: 95,
+    },
+    tramoRegreso: null,
+    tramoAVender: "ida",
     airline: "LATAM",
     flightNumber: "LA 2088",
-    departureAt: hoursFromNow(96),
-    durationMin: 95,
     originalPrice: 340,
     resalePrice: 169,
     baggage: "23kg incluido",
-    seat: "11F ventana",
+    asiento: { tipo: "seleccionado", categoria: "ventana", numero: "11F" },
     seller: sellers[2],
     sellerAllowsLastCall: true,
     createdAt: hoursFromNow(-14),
     views: 178,
     interested: 11,
+    datosPasajero: pasajeros.valeria,
+    cargoAerolineaEstimado: cargoAerolineaEstimadoDefault(),
   },
   {
     id: "f-010",
-    origin: airports.LIM,
-    destination: airports.CUZ,
+    tipoBoleto: "solo_ida",
+    tramoIda: {
+      origin: airports.LIM,
+      destination: airports.CUZ,
+      departureAt: hoursFromNow(240),
+      durationMin: 85,
+    },
+    tramoRegreso: null,
+    tramoAVender: "ida",
     airline: "JetSmart",
     flightNumber: "JA 220",
-    departureAt: hoursFromNow(240),
-    durationMin: 85,
     originalPrice: 290,
     resalePrice: 155,
     baggage: "solo cabina",
-    seat: "20A ventana",
+    asiento: { tipo: "seleccionado", categoria: "ventana", numero: "20A" },
     seller: sellers[4],
     sellerAllowsLastCall: true,
     createdAt: hoursFromNow(-30),
     views: 89,
     interested: 5,
+    datosPasajero: pasajeros.lucia,
+    cargoAerolineaEstimado: cargoAerolineaEstimadoDefault(),
   },
 ];
 
 export const airportsList = Object.values(airports);
 export const airlines = ["LATAM", "Sky Airline", "JetSmart"] as const;
+
+// Chat interno ligado a una transacción específica — nunca WhatsApp ni el teléfono real de
+// nadie. Es el único canal de coordinación entre comprador y vendedor, y queda con historial
+// revisable por la plataforma si alguna de las partes reporta un problema.
+export interface ChatMensaje {
+  autor: "comprador" | "vendedor";
+  texto: string;
+  timestamp: string; // ISO
+}
+
+// El documento de identidad del comprador nunca se pide por chat de texto libre — el
+// vendedor lo necesita para el trámite de endoso (la aerolínea exige identificar al nuevo
+// titular), así que va en un formulario estructurado propio, visible solo para el vendedor
+// de esta transacción específica.
+export type TipoDocumento = "DNI" | "Pasaporte" | "Carné de Extranjería";
+
+export interface DatosCompradorEndoso {
+  nombres: string;
+  apellidoPaterno: string;
+  apellidoMaterno: string;
+  tipoDocumento: TipoDocumento;
+  numeroDocumento: string;
+  completadoPorComprador: boolean;
+}
+
+export const datosCompradorEndosoDefault = (): DatosCompradorEndoso => ({
+  nombres: "",
+  apellidoPaterno: "",
+  apellidoMaterno: "",
+  tipoDocumento: "DNI",
+  numeroDocumento: "",
+  completadoPorComprador: false,
+});
 
 // Mock user transactions
 export interface Transaction {
@@ -305,24 +543,57 @@ export interface Transaction {
   state: "pago_retenido" | "vendedor_inicia" | "confirmado" | "liberado" | "reembolsado";
   amount: number;
   createdAt: string;
+  // Solo existe una vez que hay comprador — el "trámite en curso" de esta transacción
+  // específica es lo que determina el neto final que se libera del escrow.
+  cargoAerolineaConfirmado: CargoAerolineaConfirmado;
+  chatMensajes: ChatMensaje[];
+  datosCompradorEndoso: DatosCompradorEndoso;
 }
 
 export const transactions: Transaction[] = [
   {
     id: "t-101",
+    // Comprador con trámite recién iniciado: todavía no mandó sus datos de endoso ni
+    // escribió al vendedor — caso interactivo para probar el formulario y el chat vacíos.
     flightId: "f-001",
     role: "buyer",
     state: "vendedor_inicia",
     amount: 219,
     createdAt: hoursFromNow(-3),
+    cargoAerolineaConfirmado: cargoAerolineaConfirmadoDefault(),
+    chatMensajes: [],
+    datosCompradorEndoso: datosCompradorEndosoDefault(),
   },
   {
     id: "t-102",
+    // Vendedor con datos del comprador ya recibidos y una conversación en curso por el
+    // chat interno — nunca por WhatsApp ni exponiendo el teléfono real de nadie.
     flightId: "f-003",
     role: "seller",
     state: "pago_retenido",
     amount: 129,
     createdAt: hoursFromNow(-1),
+    cargoAerolineaConfirmado: cargoAerolineaConfirmadoDefault(),
+    chatMensajes: [
+      {
+        autor: "comprador",
+        texto: "Hola! Ya te envié mis datos para el endoso, cualquier cosa avísame.",
+        timestamp: hoursFromNow(-0.8),
+      },
+      {
+        autor: "vendedor",
+        texto: "Perfecto, gracias. Inicio el trámite con la aerolínea hoy mismo.",
+        timestamp: hoursFromNow(-0.5),
+      },
+    ],
+    datosCompradorEndoso: {
+      nombres: "Fernando",
+      apellidoPaterno: "Salazar",
+      apellidoMaterno: "Vega",
+      tipoDocumento: "DNI",
+      numeroDocumento: "72841093",
+      completadoPorComprador: true,
+    },
   },
   {
     id: "t-103",
@@ -331,6 +602,75 @@ export const transactions: Transaction[] = [
     state: "liberado",
     amount: 169,
     createdAt: hoursFromNow(-72),
+    cargoAerolineaConfirmado: cargoAerolineaConfirmadoDefault(),
+    chatMensajes: [],
+    datosCompradorEndoso: { ...datosCompradorEndosoDefault(), completadoPorComprador: true },
+  },
+  {
+    id: "t-104",
+    // Trámite en curso como vendedor: acá es donde se reporta el cargo confirmado con
+    // evidencia, y donde todavía se está esperando que el comprador mande sus datos.
+    flightId: "f-004",
+    role: "seller",
+    state: "vendedor_inicia",
+    amount: 289,
+    createdAt: hoursFromNow(-1),
+    cargoAerolineaConfirmado: cargoAerolineaConfirmadoDefault(),
+    chatMensajes: [],
+    datosCompradorEndoso: datosCompradorEndosoDefault(),
+  },
+  {
+    id: "t-105",
+    // Ejemplo con el cargo ya verificado y aceptado — el neto final ya refleja el descuento.
+    flightId: "f-002",
+    role: "seller",
+    state: "confirmado",
+    amount: 149,
+    createdAt: hoursFromNow(-6),
+    cargoAerolineaConfirmado: {
+      monto: 12,
+      origen: "reportado_por_vendedor",
+      evidenciaUrl: "https://picsum.photos/seed/t-105-evidencia/600/400",
+      estadoVerificacion: "aceptado",
+      momentoDisponible: "confirmado_en_tramite",
+      revisionManualRequerida: false,
+    },
+    chatMensajes: [
+      {
+        autor: "vendedor",
+        texto: "¿Ya recibiste el correo de confirmación de la aerolínea?",
+        timestamp: hoursFromNow(-2),
+      },
+    ],
+    datosCompradorEndoso: {
+      nombres: "Karla",
+      apellidoPaterno: "Bravo",
+      apellidoMaterno: "Núñez",
+      tipoDocumento: "DNI",
+      numeroDocumento: "68312450",
+      completadoPorComprador: true,
+    },
+  },
+  {
+    id: "t-106",
+    // Ejemplo de caso límite: el cargo reportado (S/76) supera el 50% del precio de
+    // venta (S/79) → queda pendiente con revisionManualRequerida y, si se acepta, el
+    // neto final se calcula con la comisión efectiva (piso en S/0, nunca negativo).
+    flightId: "f-006",
+    role: "seller",
+    state: "confirmado",
+    amount: 79,
+    createdAt: hoursFromNow(-2),
+    cargoAerolineaConfirmado: {
+      monto: 76,
+      origen: "reportado_por_vendedor",
+      evidenciaUrl: "https://picsum.photos/seed/t-106-evidencia/600/400",
+      estadoVerificacion: "pendiente_revision",
+      momentoDisponible: "confirmado_en_tramite",
+      revisionManualRequerida: true,
+    },
+    chatMensajes: [],
+    datosCompradorEndoso: datosCompradorEndosoDefault(),
   },
 ];
 

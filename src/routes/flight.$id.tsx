@@ -19,6 +19,11 @@ import {
   fmtDate,
   S,
   airlineLogo,
+  comisionPlataforma,
+  tramoVigente,
+  tramoAVenderLabel,
+  asientoLabel,
+  ASIENTO_ALEATORIO_MENSAJE,
 } from "@/lib/flight-utils";
 import { Countdown } from "@/components/site/Countdown";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -35,14 +40,15 @@ export const Route = createFileRoute("/flight/$id")({
         ],
       };
     }
+    const tramo = tramoVigente(f);
     return {
       meta: [
         {
-          title: `${f.origin.city} → ${f.destination.city} · ${S(f.resalePrice)} — Traspaso`,
+          title: `${tramo.origin.city} → ${tramo.destination.city} · ${S(f.resalePrice)} — Traspaso`,
         },
         {
           name: "description",
-          content: `Pasaje ${f.airline} ${f.origin.code}-${f.destination.code} el ${fmtDate(f.departureAt)} en ${S(f.resalePrice)}. Pago retenido hasta confirmar el endoso.`,
+          content: `Pasaje ${f.airline} ${tramo.origin.code}-${tramo.destination.code} el ${fmtDate(tramo.departureAt)} en ${S(f.resalePrice)}. Pago retenido hasta confirmar el endoso.`,
         },
       ],
     };
@@ -59,10 +65,13 @@ function FlightDetail() {
   const { flight } = Route.useLoaderData();
   const status = computeStatus(flight);
   const [step, setStep] = useState(0);
+  const tramo = tramoVigente(flight);
+  const comision = comisionPlataforma(flight.resalePrice);
+  const totalARetener = flight.resalePrice + comision;
 
   // Ofertas expired nunca se muestran — bloqueamos con estado explícito
   if (status === "expired") {
-    return <ExpiredNotice id={flight.id} route={`${flight.origin.code} → ${flight.destination.code}`} />;
+    return <ExpiredNotice id={flight.id} route={`${tramo.origin.code} → ${tramo.destination.code}`} />;
   }
 
   const isWarn = status === "last_call";
@@ -89,7 +98,7 @@ function FlightDetail() {
                   coordinar en tiempo real con el vendedor.
                 </p>
                 <div className="mt-3 font-mono text-sm font-bold text-[var(--color-warning-token)] bg-white px-3 py-1.5 inline-block rounded-md border border-[var(--color-warning-token)]/50 shadow-sm animate-pulse-last-call">
-                  <Countdown iso={flight.departureAt} tone="warn" />
+                  <Countdown iso={tramo.departureAt} tone="warn" />
                 </div>
               </div>
             </div>
@@ -102,34 +111,57 @@ function FlightDetail() {
                 alt={flight.airline}
                 className="h-4 w-auto max-w-[80px] object-contain"
               />
-              {flight.airline} · <span className="font-mono">{flight.flightNumber}</span> · asiento <span className="font-mono">{flight.seat}</span>
+              {flight.airline} · <span className="font-mono">{flight.flightNumber}</span> · asiento{" "}
+              <span className="font-mono">{asientoLabel(flight.asiento)}</span>
+              <div className="ml-auto flex flex-wrap items-center gap-2">
+                {flight.asiento.tipo === "seleccionado" &&
+                  flight.asiento.categoria === "ventana" && (
+                    <span className="rounded-full bg-[var(--color-secondary-token)]/10 px-2.5 py-1 text-[10px] font-bold normal-case tracking-normal text-[var(--color-secondary-token)]">
+                      🪟 Ventana confirmada
+                    </span>
+                  )}
+                {flight.tipoBoleto === "ida_y_vuelta" && (
+                  <span className="rounded-full bg-gray-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-gray-500">
+                    Esta oferta incluye: {tramoAVenderLabel(flight.tramoAVender)}
+                  </span>
+                )}
+              </div>
             </div>
 
             <div className="mt-6 flex items-center justify-between gap-4">
               <div>
-                <div className="font-display text-5xl md:text-7xl font-extrabold text-[var(--color-ink)]">{flight.origin.code}</div>
-                <div className="mt-1 text-sm font-medium text-muted-foreground">{flight.origin.city}</div>
+                <div className="font-display text-5xl md:text-7xl font-extrabold text-[var(--color-ink)]">{tramo.origin.code}</div>
+                <div className="mt-1 text-sm font-medium text-muted-foreground">{tramo.origin.city}</div>
               </div>
               <div className="flex-1 px-4">
                 <div className="relative h-px w-full border-t-2 border-dashed border-gray-300">
                   <Plane className="absolute left-1/2 top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2 text-[var(--color-primary-token)]" />
                 </div>
                 <div className="mt-2 text-center text-xs font-bold uppercase tracking-widest text-muted-foreground">
-                  {flight.durationMin} min · directo
+                  {tramo.durationMin} min · directo
                 </div>
               </div>
               <div className="text-right">
-                <div className="font-display text-5xl md:text-7xl font-extrabold text-[var(--color-ink)]">{flight.destination.code}</div>
-                <div className="mt-1 text-sm font-medium text-muted-foreground">{flight.destination.city}</div>
+                <div className="font-display text-5xl md:text-7xl font-extrabold text-[var(--color-ink)]">{tramo.destination.code}</div>
+                <div className="mt-1 text-sm font-medium text-muted-foreground">{tramo.destination.city}</div>
               </div>
             </div>
 
             <div className="mt-8 grid grid-cols-2 gap-4 border-t border-dashed border-border pt-8 sm:grid-cols-4">
-              <Meta label="Salida" value={fmtDate(flight.departureAt)} isMono />
+              <Meta label="Salida" value={fmtDate(tramo.departureAt)} isMono />
               <Meta label="Equipaje" value={flight.baggage} />
-              <Meta label="Asiento" value={flight.seat} isMono />
+              <Meta label="Asiento" value={asientoLabel(flight.asiento)} isMono />
               <Meta label="Ruta" value="Directo" />
             </div>
+
+            {flight.asiento.tipo === "aleatorio" && (
+              <div className="mt-8 rounded-xl bg-gray-50 border border-gray-200 p-5 text-sm font-medium text-gray-600">
+                <span className="text-[var(--color-ink)] font-bold block mb-1">
+                  Sobre el asiento:{" "}
+                </span>
+                {ASIENTO_ALEATORIO_MENSAJE}
+              </div>
+            )}
 
             {flight.note && (
               <div className="mt-8 rounded-xl bg-gray-50 border border-gray-200 p-5 text-sm font-medium text-gray-600">
@@ -186,6 +218,11 @@ function FlightDetail() {
                 −{discountPct(flight)}% DTO
               </div>
             </div>
+            {flight.tipoBoleto === "ida_y_vuelta" && (
+              <div className="mt-1 text-xs font-bold uppercase tracking-wide text-[var(--color-primary-token)]">
+                Precio por: {tramoAVenderLabel(flight.tramoAVender)}
+              </div>
+            )}
             <div className="mt-4 text-xs font-medium text-muted-foreground">
               Ahorro real de {S(flight.originalPrice - flight.resalePrice)} vs. precio actual en la aerolínea.
             </div>
@@ -194,16 +231,17 @@ function FlightDetail() {
 
             <div className="space-y-3 text-sm">
               <Row label="Precio del pasaje" value={S(flight.resalePrice)} />
-              <Row label="Servicio Traspaso (5%)" value={S(Math.round(flight.resalePrice * 0.05))} />
+              <Row label="Servicio Traspaso (5%)" value={S(comision)} />
+              <Row label="Asiento" value={asientoLabel(flight.asiento)} muted />
               <Row label="Verificación aerolínea" value="Incluido" muted />
             </div>
-            
+
             <div className="my-6 border-b border-dashed border-gray-200" />
-            
+
             <div className="flex items-baseline justify-between bg-[var(--surface-2)] p-4 rounded-xl">
               <div className="text-sm font-bold text-[var(--color-ink)]">A retener hoy</div>
               <div className="font-mono text-2xl font-bold text-[var(--color-ink)]">
-                {S(flight.resalePrice + Math.round(flight.resalePrice * 0.05))}
+                {S(totalARetener)}
               </div>
             </div>
 

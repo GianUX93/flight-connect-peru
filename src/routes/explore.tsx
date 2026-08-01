@@ -4,13 +4,15 @@ import { Bell, Calendar, Search, SlidersHorizontal, AlertTriangle } from "lucide
 import { z } from "zod";
 import gsap from "gsap";
 
-import { flights, airportsList, airlines } from "@/lib/mock-data";
+import { flights, airportsList, airlines, type AsientoCategoria } from "@/lib/mock-data";
 import {
   activeFlights,
   lastCallFlights,
   fmtDay,
   fmtDate,
   S,
+  tramoVigente,
+  ASIENTO_CATEGORIA_LABEL,
 } from "@/lib/flight-utils";
 import { FlightCard } from "@/components/site/FlightCard";
 import { toast } from "sonner";
@@ -41,6 +43,7 @@ function Explore() {
 
   const [airlineFilter, setAirlineFilter] = useState<string>("all");
   const [maxPrice, setMaxPrice] = useState<number>(400);
+  const [seatFilter, setSeatFilter] = useState<AsientoCategoria | "all">("all");
 
   const active = useMemo(() => activeFlights(flights), []);
   const lastCall = useMemo(() => lastCallFlights(flights), []);
@@ -48,15 +51,17 @@ function Explore() {
   const filtered = active.filter((f) => {
     if (airlineFilter !== "all" && f.airline !== airlineFilter) return false;
     if (f.resalePrice > maxPrice) return false;
-    if (search.from && f.origin.code !== search.from) return false;
-    if (search.to && f.destination.code !== search.to) return false;
+    if (seatFilter !== "all" && f.asiento.categoria !== seatFilter) return false;
+    const tramo = tramoVigente(f);
+    if (search.from && tramo.origin.code !== search.from) return false;
+    if (search.to && tramo.destination.code !== search.to) return false;
     return true;
   });
 
   const specificDate = search.date ? new Date(search.date) : null;
   const specificMatches = specificDate
     ? filtered.filter((f) => {
-        const d = new Date(f.departureAt);
+        const d = new Date(tramoVigente(f).departureAt);
         return (
           d.getDate() === specificDate.getDate() &&
           d.getMonth() === specificDate.getMonth()
@@ -70,8 +75,8 @@ function Explore() {
           .slice()
           .sort(
             (a, b) =>
-              Math.abs(new Date(a.departureAt).getTime() - specificDate.getTime()) -
-              Math.abs(new Date(b.departureAt).getTime() - specificDate.getTime()),
+              Math.abs(new Date(tramoVigente(a).departureAt).getTime() - specificDate.getTime()) -
+              Math.abs(new Date(tramoVigente(b).departureAt).getTime() - specificDate.getTime()),
           )
           .slice(0, 4)
       : [];
@@ -181,6 +186,17 @@ function Explore() {
           value={airlineFilter}
           onChange={setAirlineFilter}
           options={[["all", "Todas"], ...airlines.map((a) => [a, a] as [string, string])]}
+        />
+        <PillSelect
+          label="Asiento"
+          value={seatFilter}
+          onChange={(v) => setSeatFilter(v as AsientoCategoria | "all")}
+          options={[
+            ["all", "Todos"],
+            ...(["ventana", "medio", "pasillo"] as AsientoCategoria[]).map(
+              (c) => [c, ASIENTO_CATEGORIA_LABEL[c]] as [string, string],
+            ),
+          ]}
         />
         <div className="inline-flex items-center gap-2 rounded-full border border-border bg-white px-4 py-1.5">
           <span className="text-muted-foreground font-medium text-xs">Máx. {S(maxPrice)}</span>
@@ -407,26 +423,29 @@ function NoExactResults({
             Fechas cercanas con disponibilidad
           </div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {nearby.map((f) => (
-              <Link
-                key={f.id}
-                to="/flight/$id"
-                params={{ id: f.id }}
-                className="flex items-center justify-between gap-3 tarjeta-boleto p-4 hover:border-[var(--color-secondary-token)]"
-              >
-                <div>
-                  <div className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
-                    {f.origin.code} → {f.destination.code}
+            {nearby.map((f) => {
+              const tramo = tramoVigente(f);
+              return (
+                <Link
+                  key={f.id}
+                  to="/flight/$id"
+                  params={{ id: f.id }}
+                  className="flex items-center justify-between gap-3 tarjeta-boleto p-4 hover:border-[var(--color-secondary-token)]"
+                >
+                  <div>
+                    <div className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
+                      {tramo.origin.code} → {tramo.destination.code}
+                    </div>
+                    <div className="mt-1 font-display text-lg font-bold leading-tight text-[var(--color-ink)]">
+                      {fmtDate(tramo.departureAt)}
+                    </div>
                   </div>
-                  <div className="mt-1 font-display text-lg font-bold leading-tight text-[var(--color-ink)]">
-                    {fmtDate(f.departureAt)}
+                  <div className="text-right">
+                    <div className="font-mono text-xl font-bold text-[var(--color-primary-token)]">{S(f.resalePrice)}</div>
                   </div>
-                </div>
-                <div className="text-right">
-                  <div className="font-mono text-xl font-bold text-[var(--color-primary-token)]">{S(f.resalePrice)}</div>
-                </div>
-              </Link>
-            ))}
+                </Link>
+              );
+            })}
           </div>
         </div>
       )}
