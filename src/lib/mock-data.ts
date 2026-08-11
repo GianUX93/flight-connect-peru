@@ -114,12 +114,18 @@ export interface Flight {
   originalPrice: number; // soles
   resalePrice: number; // soles
   baggage: "solo cabina" | "23kg incluido" | "cabina + 23kg";
-  asiento: Asiento;
+  // El asiento se define por tramo — el vendedor puede tener sillas distintas en ida y vuelta.
+  // null cuando ese tramo no forma parte de esta oferta (ej. tramoAVender = "regreso").
+  asientoIda: Asiento | null;
+  asientoRegreso: Asiento | null;
   seller: Seller;
   sellerAllowsLastCall: boolean; // when <24h, whether it enters last_call lane
   createdAt: string;
   views: number;
   interested: number;
+  // Cuántas personas guardaron esta oferta (corazón) — señal de intención más fuerte
+  // que una vista, ya que implica "quiero volver a esto".
+  savedCount: number;
   note?: string;
   datosPasajero: DatosPasajero;
   cargoAerolineaEstimado: CargoAerolineaEstimado;
@@ -187,6 +193,18 @@ const sellers: Seller[] = [
     verifiedId: true,
     memberSince: "2022",
   },
+  // El mismo currentUser ("Andrea Salazar", u-me) como vendedora — necesario para poder
+  // demostrar pasajes publicados por el usuario actual que todavía no tienen comprador.
+  {
+    id: "u-me",
+    name: "Andrea Salazar",
+    avatar: "AS",
+    avatarUrl: "https://i.pravatar.cc/150?img=5",
+    rating: 4.85,
+    reviews: 12,
+    verifiedId: true,
+    memberSince: "2024",
+  },
 ];
 
 const hoursFromNow = (h: number) => new Date(Date.now() + h * 3600_000).toISOString();
@@ -229,6 +247,13 @@ const pasajeros: Record<string, DatosPasajero> = {
     email: "lucia.quispe@correo.pe",
     telefono: "+51 943 210 987",
   },
+  andrea: {
+    nombres: "Andrea",
+    apellidoPaterno: "Salazar",
+    apellidoMaterno: "Rojas",
+    email: "andrea@correo.pe",
+    telefono: "+51 932 109 876",
+  },
 };
 
 export const flights: Flight[] = [
@@ -248,12 +273,14 @@ export const flights: Flight[] = [
     originalPrice: 480,
     resalePrice: 219,
     baggage: "cabina + 23kg",
-    asiento: { tipo: "seleccionado", categoria: "ventana", numero: "12A" },
+    asientoIda: { tipo: "seleccionado", categoria: "ventana", numero: "12A" },
+    asientoRegreso: null,
     seller: sellers[0],
     sellerAllowsLastCall: true,
     createdAt: hoursFromNow(-8),
     views: 214,
     interested: 18,
+    savedCount: 26,
     note: "Cambio de planes familiares. Endoso permitido sin costo por LATAM.",
     datosPasajero: pasajeros.camila,
     cargoAerolineaEstimado: cargoAerolineaEstimadoDefault(),
@@ -274,12 +301,14 @@ export const flights: Flight[] = [
     originalPrice: 310,
     resalePrice: 149,
     baggage: "solo cabina",
-    asiento: { tipo: "seleccionado", categoria: "pasillo", numero: "18C" },
+    asientoIda: { tipo: "seleccionado", categoria: "pasillo", numero: "18C" },
+    asientoRegreso: null,
     seller: sellers[1],
     sellerAllowsLastCall: true,
     createdAt: hoursFromNow(-4),
     views: 98,
     interested: 9,
+    savedCount: 14,
     datosPasajero: pasajeros.diego,
     cargoAerolineaEstimado: { monto: 25, ingresadoPorVendedor: true, verificado: false },
   },
@@ -299,12 +328,14 @@ export const flights: Flight[] = [
     originalPrice: 265,
     resalePrice: 129,
     baggage: "solo cabina",
-    asiento: { tipo: "seleccionado", categoria: "ventana", numero: "07F" },
+    asientoIda: { tipo: "seleccionado", categoria: "ventana", numero: "07F" },
+    asientoRegreso: null,
     seller: sellers[2],
     sellerAllowsLastCall: true,
     createdAt: hoursFromNow(-22),
     views: 341,
     interested: 24,
+    savedCount: 33,
     datosPasajero: pasajeros.valeria,
     cargoAerolineaEstimado: cargoAerolineaEstimadoDefault(),
   },
@@ -330,12 +361,15 @@ export const flights: Flight[] = [
     originalPrice: 520,
     resalePrice: 289,
     baggage: "23kg incluido",
-    asiento: { tipo: "seleccionado", categoria: "medio", numero: "22B" },
+    // Asiento distinto en cada tramo — el vendedor eligió filas diferentes para ida y vuelta.
+    asientoIda: { tipo: "seleccionado", categoria: "medio", numero: "22B" },
+    asientoRegreso: { tipo: "seleccionado", categoria: "ventana", numero: "14A" },
     seller: sellers[4],
     sellerAllowsLastCall: true,
     createdAt: hoursFromNow(-2),
     views: 66,
     interested: 4,
+    savedCount: 9,
     datosPasajero: pasajeros.lucia,
     cargoAerolineaEstimado: { monto: 18, ingresadoPorVendedor: true, verificado: false },
   },
@@ -362,12 +396,14 @@ export const flights: Flight[] = [
     originalPrice: 360,
     resalePrice: 139,
     baggage: "solo cabina",
-    asiento: { tipo: "seleccionado", categoria: "pasillo", numero: "09D" },
+    asientoIda: null,
+    asientoRegreso: { tipo: "seleccionado", categoria: "pasillo", numero: "09D" },
     seller: sellers[0],
     sellerAllowsLastCall: true,
     createdAt: hoursFromNow(-3),
     views: 402,
     interested: 31,
+    savedCount: 45,
     note: "Ya no puedo tomarlo. Endoso rápido, respondo en minutos.",
     datosPasajero: pasajeros.camila,
     cargoAerolineaEstimado: cargoAerolineaEstimadoDefault(),
@@ -388,12 +424,14 @@ export const flights: Flight[] = [
     originalPrice: 220,
     resalePrice: 79,
     baggage: "solo cabina",
-    asiento: { tipo: "aleatorio", categoria: null, numero: null },
+    asientoIda: { tipo: "aleatorio", categoria: null, numero: null },
+    asientoRegreso: null,
     seller: sellers[3],
     sellerAllowsLastCall: true,
     createdAt: hoursFromNow(-1),
     views: 89,
     interested: 6,
+    savedCount: 12,
     datosPasajero: pasajeros.rodrigo,
     cargoAerolineaEstimado: cargoAerolineaEstimadoDefault(),
   },
@@ -413,12 +451,14 @@ export const flights: Flight[] = [
     originalPrice: 410,
     resalePrice: 179,
     baggage: "cabina + 23kg",
-    asiento: { tipo: "seleccionado", categoria: "pasillo", numero: "05C" },
+    asientoIda: { tipo: "seleccionado", categoria: "pasillo", numero: "05C" },
+    asientoRegreso: null,
     seller: sellers[1],
     sellerAllowsLastCall: true,
     createdAt: hoursFromNow(-40),
     views: 512,
     interested: 22,
+    savedCount: 28,
     datosPasajero: pasajeros.diego,
     cargoAerolineaEstimado: cargoAerolineaEstimadoDefault(),
   },
@@ -438,12 +478,14 @@ export const flights: Flight[] = [
     originalPrice: 240,
     resalePrice: 99,
     baggage: "solo cabina",
-    asiento: { tipo: "aleatorio", categoria: null, numero: null },
+    asientoIda: { tipo: "aleatorio", categoria: null, numero: null },
+    asientoRegreso: null,
     seller: sellers[4],
     sellerAllowsLastCall: false, // <24h and seller withdrew → expired for the marketplace
     createdAt: hoursFromNow(-10),
     views: 61,
     interested: 2,
+    savedCount: 5,
     datosPasajero: pasajeros.lucia,
     cargoAerolineaEstimado: cargoAerolineaEstimadoDefault(),
   },
@@ -463,12 +505,14 @@ export const flights: Flight[] = [
     originalPrice: 340,
     resalePrice: 169,
     baggage: "23kg incluido",
-    asiento: { tipo: "seleccionado", categoria: "ventana", numero: "11F" },
+    asientoIda: { tipo: "seleccionado", categoria: "ventana", numero: "11F" },
+    asientoRegreso: null,
     seller: sellers[2],
     sellerAllowsLastCall: true,
     createdAt: hoursFromNow(-14),
     views: 178,
     interested: 11,
+    savedCount: 19,
     datosPasajero: pasajeros.valeria,
     cargoAerolineaEstimado: cargoAerolineaEstimadoDefault(),
   },
@@ -488,13 +532,72 @@ export const flights: Flight[] = [
     originalPrice: 290,
     resalePrice: 155,
     baggage: "solo cabina",
-    asiento: { tipo: "seleccionado", categoria: "ventana", numero: "20A" },
+    asientoIda: { tipo: "seleccionado", categoria: "ventana", numero: "20A" },
+    asientoRegreso: null,
     seller: sellers[4],
     sellerAllowsLastCall: true,
     createdAt: hoursFromNow(-30),
     views: 89,
     interested: 5,
+    savedCount: 10,
     datosPasajero: pasajeros.lucia,
+    cargoAerolineaEstimado: cargoAerolineaEstimadoDefault(),
+  },
+  // Publicados por el propio currentUser (Andrea) y todavía sin comprador — demuestran
+  // la pestaña "Publicados" de Mis operaciones (vistas/interesados de una oferta viva,
+  // no de una transacción en curso).
+  {
+    id: "f-011",
+    tipoBoleto: "solo_ida",
+    tramoIda: {
+      origin: airports.LIM,
+      destination: airports.AQP,
+      departureAt: hoursFromNow(168),
+      durationMin: 100,
+    },
+    tramoRegreso: null,
+    tramoAVender: "ida",
+    airline: "LATAM",
+    flightNumber: "LA 2150",
+    originalPrice: 310,
+    resalePrice: 165,
+    baggage: "23kg incluido",
+    asientoIda: { tipo: "seleccionado", categoria: "ventana", numero: "16A" },
+    asientoRegreso: null,
+    seller: sellers[5],
+    sellerAllowsLastCall: true,
+    createdAt: hoursFromNow(-48),
+    views: 132,
+    interested: 7,
+    savedCount: 15,
+    datosPasajero: pasajeros.andrea,
+    cargoAerolineaEstimado: cargoAerolineaEstimadoDefault(),
+  },
+  {
+    id: "f-012",
+    tipoBoleto: "solo_ida",
+    tramoIda: {
+      origin: airports.LIM,
+      destination: airports.TRU,
+      departureAt: hoursFromNow(60),
+      durationMin: 75,
+    },
+    tramoRegreso: null,
+    tramoAVender: "ida",
+    airline: "Sky Airline",
+    flightNumber: "H2 305",
+    originalPrice: 210,
+    resalePrice: 99,
+    baggage: "solo cabina",
+    asientoIda: { tipo: "aleatorio", categoria: null, numero: null },
+    asientoRegreso: null,
+    seller: sellers[5],
+    sellerAllowsLastCall: true,
+    createdAt: hoursFromNow(-3),
+    views: 6,
+    interested: 0,
+    savedCount: 2,
+    datosPasajero: pasajeros.andrea,
     cargoAerolineaEstimado: cargoAerolineaEstimadoDefault(),
   },
 ];
@@ -505,16 +608,22 @@ export const airlines = ["LATAM", "Sky Airline", "JetSmart"] as const;
 // Chat interno ligado a una transacción específica — nunca WhatsApp ni el teléfono real de
 // nadie. Es el único canal de coordinación entre comprador y vendedor, y queda con historial
 // revisable por la plataforma si alguna de las partes reporta un problema.
+//
+// `adjunto`: algunas aerolíneas piden, además de los datos estructurados de endoso, una foto
+// del documento de identidad — no encaja como campo fijo del formulario (no todas la piden),
+// así que el vendedor la solicita puntualmente por chat y el comprador la adjunta aquí. Sigue
+// visible solo para el vendedor de esta transacción, igual que el resto de sus datos de endoso.
 export interface ChatMensaje {
   autor: "comprador" | "vendedor";
   texto: string;
   timestamp: string; // ISO
+  adjunto?: { nombre: string; url: string };
 }
 
-// El documento de identidad del comprador nunca se pide por chat de texto libre — el
-// vendedor lo necesita para el trámite de endoso (la aerolínea exige identificar al nuevo
-// titular), así que va en un formulario estructurado propio, visible solo para el vendedor
-// de esta transacción específica.
+// Los datos estructurados de endoso nunca se piden por chat de texto libre — el vendedor los
+// necesita para el trámite (la aerolínea exige identificar al nuevo titular), así que van en
+// un formulario propio, visible solo para el vendedor de esta transacción específica. Una foto
+// del documento sí puede solicitarse por chat cuando la aerolínea la exige (ver `ChatMensaje`).
 export type TipoDocumento = "DNI" | "Pasaporte" | "Carné de Extranjería";
 
 export interface DatosCompradorEndoso {
@@ -535,12 +644,19 @@ export const datosCompradorEndosoDefault = (): DatosCompradorEndoso => ({
   completadoPorComprador: false,
 });
 
+export interface ReporteProblema {
+  motivo: string;
+  detalle: string;
+  createdAt: string;
+}
+
 // Mock user transactions
 export interface Transaction {
   id: string;
   flightId: string;
   role: "buyer" | "seller";
-  state: "pago_retenido" | "vendedor_inicia" | "confirmado" | "liberado" | "reembolsado";
+  state:
+    "pago_retenido" | "vendedor_inicia" | "confirmado" | "liberado" | "reembolsado" | "en_disputa";
   amount: number;
   createdAt: string;
   // Solo existe una vez que hay comprador — el "trámite en curso" de esta transacción
@@ -548,6 +664,10 @@ export interface Transaction {
   cargoAerolineaConfirmado: CargoAerolineaConfirmado;
   chatMensajes: ChatMensaje[];
   datosCompradorEndoso: DatosCompradorEndoso;
+  // Estado previo al reportar un problema — permite congelar el timeline en el paso
+  // correcto mientras la transacción está en disputa, y no perderlo si se resuelve.
+  estadoAnteriorDisputa?: Transaction["state"];
+  reporte?: ReporteProblema;
 }
 
 export const transactions: Transaction[] = [

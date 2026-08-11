@@ -4,6 +4,7 @@ import { hoursUntil } from "@/lib/flight-utils";
 interface Props {
   iso: string;
   tone?: "neutral" | "warn";
+  size?: "sm" | "lg";
   className?: string;
 }
 
@@ -11,7 +12,7 @@ interface Props {
  * Countdown regresivo. Solo se renderiza si hay tiempo restante real.
  * Nunca renderiza para vuelos expired (hoursUntil <= 0) — devuelve null.
  */
-export function Countdown({ iso, tone = "neutral", className }: Props) {
+export function Countdown({ iso, tone = "neutral", size = "sm", className }: Props) {
   const [, tick] = useState(0);
   useEffect(() => {
     const id = setInterval(() => tick((v) => v + 1), 1000);
@@ -41,24 +42,44 @@ export function Countdown({ iso, tone = "neutral", className }: Props) {
         ];
 
   const warn = tone === "warn";
+  const lg = size === "lg";
 
   return (
     <div
-      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-[11px] font-bold tabular-nums ${
+      className={`inline-flex items-center rounded-full font-mono tabular-nums ${
+        lg
+          ? "gap-2 px-4 py-2 text-base font-extrabold"
+          : "gap-1.5 px-2.5 py-1 text-[11px] font-bold"
+      } ${
         warn
-          ? "bg-warn text-warn-foreground shadow-sm"
+          ? lg
+            ? "bg-[var(--color-ink)] text-white shadow-md"
+            : "bg-warn text-warn-foreground shadow-sm"
           : "bg-surface-2 text-muted-foreground"
       } ${className ?? ""}`}
     >
       <span
-        className={`h-1.5 w-1.5 rounded-full ${
-          warn ? "bg-warn-foreground animate-pulse" : "bg-signal"
+        className={`rounded-full ${lg ? "h-2.5 w-2.5" : "h-1.5 w-1.5"} ${
+          warn
+            ? lg
+              ? "bg-[var(--color-warning-token)] animate-pulse"
+              : "bg-warn-foreground animate-pulse"
+            : "bg-signal"
         }`}
       />
       {parts.map((p, i) => (
         <span key={i}>
           {String(p.v).padStart(2, "0")}
-          <span className={warn ? "text-warn-foreground/60" : "text-muted-foreground/70"}>{p.l}</span>
+          <span
+            className={
+              warn ? (lg ? "text-white/50" : "text-warn-foreground/60") : "text-muted-foreground/70"
+            }
+          >
+            {p.l}
+          </span>
+          {i < parts.length - 1 && (
+            <span className={lg ? "mx-0.5 text-white/30" : "hidden"}>:</span>
+          )}
         </span>
       ))}
     </div>

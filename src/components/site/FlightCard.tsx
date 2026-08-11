@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { ShieldCheck, Plane } from "lucide-react";
+import { ShieldCheck, Plane, Heart } from "lucide-react";
 import type { Flight } from "@/lib/mock-data";
 import {
   computeStatus,
@@ -10,15 +10,24 @@ import {
   airlineLogo,
   tramoVigente,
   tramoAVenderLabel,
+  asientoVigente,
 } from "@/lib/flight-utils";
 import { Countdown } from "./Countdown";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useSaved } from "@/lib/saved-context";
 
 /**
  * FlightCard. Renderiza SOLO ofertas active o last_call.
  * Devuelve null si el vuelo es expired (guarda de seguridad — nunca debe llegar aquí).
  */
-export function FlightCard({ flight, variant = "active" }: { flight: Flight; variant?: "active" | "last_call" }) {
+export function FlightCard({
+  flight,
+  variant = "active",
+}: {
+  flight: Flight;
+  variant?: "active" | "last_call";
+}) {
+  const { isSaved, toggleSaved } = useSaved();
   const status = computeStatus(flight);
   if (status === "expired") return null;
   // Enforce lane separation
@@ -27,12 +36,14 @@ export function FlightCard({ flight, variant = "active" }: { flight: Flight; var
 
   const isWarn = status === "last_call";
   const tramo = tramoVigente(flight);
+  const asiento = asientoVigente(flight);
+  const saved = isSaved(flight.id);
 
   return (
     <Link
       to="/flight/$id"
       params={{ id: flight.id }}
-      className={`group tarjeta-boleto block ${
+      className={`group tarjeta-boleto relative block ${
         isWarn
           ? "border-[color-mix(in_srgb,var(--color-warning-token)_40%,transparent)] bg-[color-mix(in_srgb,var(--color-warning-token)_5%,#FFFFFF)]"
           : ""
@@ -40,8 +51,19 @@ export function FlightCard({ flight, variant = "active" }: { flight: Flight; var
     >
       {isWarn && (
         <div className="flex items-center justify-between border-b border-[color-mix(in_srgb,var(--color-warning-token)_30%,transparent)] bg-[color-mix(in_srgb,var(--color-warning-token)_15%,transparent)] px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-[var(--color-ink)]">
-          <span className="flex items-center gap-1.5"><span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--color-warning-token)] opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-[var(--color-warning-token)]"></span></span> Última llamada</span>
-          <div className="font-mono text-[10px] animate-pulse-last-call"><Countdown iso={tramo.departureAt} tone="warn" /></div>
+          <span className="flex items-center gap-1.5">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--color-warning-token)] opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-[var(--color-warning-token)]"></span>
+            </span>{" "}
+            Última llamada
+          </span>
+          <div className="flex shrink-0 items-center gap-2">
+            <div className="font-mono text-[10px] animate-pulse-last-call">
+              <Countdown iso={tramo.departureAt} tone="warn" />
+            </div>
+            <SaveHeartButton saved={saved} onToggle={() => toggleSaved(flight.id)} />
+          </div>
         </div>
       )}
 
@@ -54,21 +76,28 @@ export function FlightCard({ flight, variant = "active" }: { flight: Flight; var
           />
           <span className="truncate">{flight.airline}</span>
           <span className="font-mono shrink-0">{flight.flightNumber}</span>
-          {flight.asiento.tipo === "seleccionado" && flight.asiento.categoria === "ventana" && (
-            <span className="ml-auto shrink-0 rounded-full bg-[var(--color-secondary-token)]/10 px-2 py-0.5 text-[10px] font-bold normal-case tracking-normal text-[var(--color-secondary-token)]">
-              🪟 Ventana confirmada
-            </span>
-          )}
-          {flight.asiento.tipo === "aleatorio" && (
-            <span className="ml-auto shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-bold normal-case tracking-normal text-gray-500">
-              Asiento aleatorio
-            </span>
-          )}
+          <div className="ml-auto flex shrink-0 items-center gap-2">
+            {asiento.tipo === "seleccionado" && asiento.categoria === "ventana" && (
+              <span className="shrink-0 rounded-full bg-[var(--color-secondary-token)]/10 px-2 py-0.5 text-[10px] font-bold normal-case tracking-normal text-[var(--color-secondary-token)]">
+                🪟 Ventana confirmada
+              </span>
+            )}
+            {asiento.tipo === "aleatorio" && (
+              <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-bold normal-case tracking-normal text-gray-500">
+                Asiento aleatorio
+              </span>
+            )}
+            {!isWarn && <SaveHeartButton saved={saved} onToggle={() => toggleSaved(flight.id)} />}
+          </div>
         </div>
         <div className="mt-4 flex items-baseline gap-3">
-          <span className="font-display text-3xl leading-none font-bold text-[var(--color-ink)]">{tramo.origin.code}</span>
+          <span className="font-display text-3xl leading-none font-bold text-[var(--color-ink)]">
+            {tramo.origin.code}
+          </span>
           <Plane className="h-4 w-4 shrink-0 text-[var(--color-primary-token)]" />
-          <span className="font-display text-3xl leading-none font-bold text-[var(--color-ink)]">{tramo.destination.code}</span>
+          <span className="font-display text-3xl leading-none font-bold text-[var(--color-ink)]">
+            {tramo.destination.code}
+          </span>
           {flight.tipoBoleto === "ida_y_vuelta" && (
             <span className="ml-auto shrink-0 rounded-full bg-gray-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-gray-500">
               {tramoAVenderLabel(flight.tramoAVender)}
@@ -110,9 +139,14 @@ export function FlightCard({ flight, variant = "active" }: { flight: Flight; var
             </AvatarFallback>
           </Avatar>
           <span className="min-w-0 truncate font-medium text-[var(--color-ink)]">
-            {flight.seller.name} <span className="text-muted-foreground font-normal">· ★ {flight.seller.rating.toFixed(1)}</span>
+            {flight.seller.name}{" "}
+            <span className="text-muted-foreground font-normal">
+              · ★ {flight.seller.rating.toFixed(1)}
+            </span>
           </span>
-          {flight.seller.verifiedId && <ShieldCheck className="h-4 w-4 shrink-0 text-[var(--color-secondary-token)]" />}
+          {flight.seller.verifiedId && (
+            <ShieldCheck className="h-4 w-4 shrink-0 text-[var(--color-secondary-token)]" />
+          )}
         </div>
         {!isWarn && status === "active" && (
           <div className="shrink-0 font-mono text-[10px] text-[var(--color-secondary-token)] font-medium">
@@ -121,5 +155,29 @@ export function FlightCard({ flight, variant = "active" }: { flight: Flight; var
         )}
       </div>
     </Link>
+  );
+}
+
+function SaveHeartButton({ saved, onToggle }: { saved: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onToggle();
+      }}
+      aria-label={saved ? "Quitar de guardados" : "Guardar viaje"}
+      aria-pressed={saved}
+      className="grid h-6 w-6 shrink-0 place-items-center rounded-full transition-transform hover:scale-110"
+    >
+      <Heart
+        className={`h-4 w-4 transition-colors ${
+          saved
+            ? "fill-[var(--color-primary-token)] text-[var(--color-primary-token)]"
+            : "text-muted-foreground"
+        }`}
+      />
+    </button>
   );
 }

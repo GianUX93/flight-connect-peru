@@ -14,7 +14,7 @@ export function SiteFooter() {
         <FooterCol title="Producto">
           <Link to="/explore" className="hover:text-foreground">Explorar</Link>
           <Link to="/publish" className="hover:text-foreground">Publicar pasaje</Link>
-          <Link to="/dashboard" className="hover:text-foreground">Mis traspasos</Link>
+          <Link to="/dashboard" className="hover:text-foreground">Mis operaciones</Link>
         </FooterCol>
         <FooterCol title="Confianza">
           <Link to="/trust" className="hover:text-foreground">Cómo funciona</Link>

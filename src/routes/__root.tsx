@@ -12,6 +12,8 @@ import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { SiteHeader } from "../components/site/SiteHeader";
 import { SiteFooter } from "../components/site/SiteFooter";
+import { AlertsProvider } from "../lib/alerts-context";
+import { SavedProvider } from "../lib/saved-context";
 import { Toaster } from "sonner";
 
 function NotFoundComponent() {
@@ -42,9 +44,7 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
     <div className="flex min-h-screen items-center justify-center px-4">
       <div className="max-w-md text-center">
         <h1 className="font-display text-3xl">Algo se movió en la cabina</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Refresca o vuelve al inicio.
-        </p>
+        <p className="mt-2 text-sm text-muted-foreground">Refresca o vuelve al inicio.</p>
         <div className="mt-6 flex justify-center gap-2">
           <button
             onClick={() => {
@@ -117,14 +117,18 @@ function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   return (
     <QueryClientProvider client={queryClient}>
-      <div className="flex min-h-screen flex-col">
-        <SiteHeader />
-        <main className="flex-1">
-          <Outlet />
-        </main>
-        <SiteFooter />
-      </div>
-      <Toaster theme="light" position="top-center" />
+      <AlertsProvider>
+        <SavedProvider>
+          <div className="flex min-h-screen flex-col">
+            <SiteHeader />
+            <main className="flex-1">
+              <Outlet />
+            </main>
+            <SiteFooter />
+          </div>
+          <Toaster theme="light" position="top-center" />
+        </SavedProvider>
+      </AlertsProvider>
     </QueryClientProvider>
   );
 }

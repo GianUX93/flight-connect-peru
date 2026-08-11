@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
-import { ArrowRight, CheckCircle2, Sparkles } from "lucide-react";
+import { ArrowRight, CheckCircle2, Sparkles, Upload, Loader2, ChevronDown } from "lucide-react";
+import { toast } from "sonner";
 import {
   airportsList,
   airlines,
@@ -33,6 +34,8 @@ export const Route = createFileRoute("/publish")({
 
 function Publish() {
   const [step, setStep] = useState(0);
+  const [scanning, setScanning] = useState(false);
+  const [precioTouched, setPrecioTouched] = useState(false);
   const [data, setData] = useState({
     airline: "LATAM",
     flightNumber: "",
@@ -51,9 +54,12 @@ function Publish() {
     original: 380,
     price: 179,
     baggage: "solo cabina",
-    asientoTipo: "seleccionado" as Asiento["tipo"],
-    asientoCategoria: "ventana" as AsientoCategoria | null,
-    asientoNumero: "",
+    asientoIdaTipo: "seleccionado" as Asiento["tipo"],
+    asientoIdaCategoria: "ventana" as AsientoCategoria | null,
+    asientoIdaNumero: "",
+    asientoRegresoTipo: "seleccionado" as Asiento["tipo"],
+    asientoRegresoCategoria: "ventana" as AsientoCategoria | null,
+    asientoRegresoNumero: "",
     booking: "",
     idUploaded: false,
     pasajero: {
@@ -64,22 +70,75 @@ function Publish() {
       telefono: "",
     },
     cargoEstimado: null as number | null,
+    notaVendedor: "",
   });
 
   const suggested = useMemo(() => Math.round(data.original * 0.48), [data.original]);
+
+  const precioMinimo = Math.max(1, Math.ceil(data.original * 0.1));
+  const precioMaximo = Math.max(precioMinimo, data.original - 1);
+  const precioError =
+    data.price >= data.original
+      ? `El precio de reventa debe ser menor al original (${S(data.original)}). Este no es un marketplace de reventa a la par.`
+      : data.price < precioMinimo
+        ? `El precio mínimo permitido es ${S(precioMinimo)} (10% del original).`
+        : null;
 
   const comision = Math.round(data.price * PLATFORM_COMMISSION_RATE);
   const cargoEstimadoAplicado = data.cargoEstimado ?? 0;
   const montoNetoEstimado = data.price - cargoEstimadoAplicado - comision;
 
-  const asiento: Asiento =
-    data.asientoTipo === "seleccionado"
+  const vendeIda = !data.hasReturn || data.tramoAVender === "ida" || data.tramoAVender === "ambos";
+  const vendeRegreso =
+    data.hasReturn && (data.tramoAVender === "regreso" || data.tramoAVender === "ambos");
+
+  const asientoIda: Asiento =
+    data.asientoIdaTipo === "seleccionado"
       ? {
           tipo: "seleccionado",
-          categoria: data.asientoCategoria,
-          numero: data.asientoNumero || null,
+          categoria: data.asientoIdaCategoria,
+          numero: data.asientoIdaNumero || null,
         }
       : { tipo: "aleatorio", categoria: null, numero: null };
+
+  const asientoRegreso: Asiento | null = !vendeRegreso
+    ? null
+    : data.asientoRegresoTipo === "seleccionado"
+      ? {
+          tipo: "seleccionado",
+          categoria: data.asientoRegresoCategoria,
+          numero: data.asientoRegresoNumero || null,
+        }
+      : { tipo: "aleatorio", categoria: null, numero: null };
+
+  function handleVoucherUpload(file: File | undefined) {
+    if (!file) return;
+    setScanning(true);
+    window.setTimeout(() => {
+      setData((prev) => ({
+        ...prev,
+        airline: "LATAM",
+        flightNumber: "LA 2091",
+        from: "LIM",
+        to: "AQP",
+        date: new Date(Date.now() + 12 * 86400_000).toISOString().slice(0, 10),
+        time: "08:45",
+        arrivalTime: "10:20",
+        baggage: "23kg incluido",
+        pasajero: {
+          ...prev.pasajero,
+          nombres: prev.pasajero.nombres || "Andrea",
+          apellidoPaterno: prev.pasajero.apellidoPaterno || "Salazar",
+          apellidoMaterno: prev.pasajero.apellidoMaterno || "Rojas",
+        },
+      }));
+      setScanning(false);
+      toast.success("Datos extraídos del voucher", {
+        description:
+          "Vuelo y pasajero completados. Revisa que todo esté correcto — el email y teléfono no vienen en el voucher, complétalos tú.",
+      });
+    }, 1800);
+  }
 
   function toggleHasReturn(hasReturn: boolean) {
     setData({
@@ -110,20 +169,24 @@ function Publish() {
             Pasaje publicado
           </h1>
           <p className="mt-3 text-sm font-medium text-muted-foreground leading-relaxed">
-            Empezaremos a mostrarlo en el marketplace. Recibirás notificaciones cuando aparezcan
-            interesados verificados.
+            Empezaremos a mostrarlo en el marketplace. Verás las vistas e interesados en tiempo real
+            desde "Mis operaciones" → Publicados.
           </p>
-          <div className="mt-8 grid grid-cols-3 gap-4">
-            <MiniStat n="0" label="Vistas" />
-            <MiniStat n="0" label="Interesados" />
-            <MiniStat n={S(data.price)} label="Precio" isMono />
+          <div className="mt-8 inline-flex items-baseline gap-2 rounded-2xl bg-surface-2 px-6 py-4">
+            <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+              Precio publicado
+            </span>
+            <span className="font-mono text-2xl font-bold text-[var(--color-primary-token)]">
+              {S(data.price)}
+            </span>
           </div>
           <div className="mt-10 flex flex-col sm:flex-row justify-center gap-3">
             <Link
               to="/dashboard"
+              search={{ vista: "publicados" }}
               className="inline-flex items-center justify-center gap-2 rounded-full bg-[var(--color-ink)] px-6 py-3 text-sm font-bold text-white transition-transform hover:scale-105"
             >
-              Ir a mis traspasos <ArrowRight className="h-4 w-4" />
+              Ir a mis operaciones <ArrowRight className="h-4 w-4" />
             </Link>
             <Link
               to="/explore"
@@ -152,7 +215,9 @@ function Publish() {
           <div key={s} className="flex flex-1 items-center gap-2">
             <div
               className={`grid h-8 w-8 shrink-0 place-items-center rounded-full text-xs font-bold transition-colors ${
-                i <= step ? "bg-[var(--color-ink)] text-white" : "bg-gray-100 text-gray-400"
+                i <= step
+                  ? "bg-[var(--color-ink)] text-white"
+                  : "border border-border bg-white text-gray-400"
               }`}
             >
               {i + 1}
@@ -164,7 +229,7 @@ function Publish() {
             </div>
             {i < steps.length - 1 && (
               <div
-                className={`h-1 flex-1 rounded-full ${i < step ? "bg-[var(--color-ink)]" : "bg-gray-100"}`}
+                className={`h-1 flex-1 rounded-full ${i < step ? "bg-[var(--color-ink)]" : "bg-white"}`}
               />
             )}
           </div>
@@ -178,17 +243,58 @@ function Publish() {
               <h2 className="font-display text-3xl font-extrabold text-[var(--color-ink)]">
                 Información del vuelo
               </h2>
+
+              <label
+                className={`flex cursor-pointer items-center gap-4 rounded-2xl border-2 border-dashed p-5 transition-colors ${
+                  scanning
+                    ? "border-[var(--color-accent-token)]/40 bg-[var(--color-accent-token)]/5"
+                    : "border-border bg-surface-2 hover:border-[var(--color-accent-token)]/40"
+                }`}
+              >
+                <input
+                  type="file"
+                  accept="image/*,.pdf"
+                  className="hidden"
+                  disabled={scanning}
+                  onChange={(e) => {
+                    handleVoucherUpload(e.target.files?.[0]);
+                    e.target.value = "";
+                  }}
+                />
+                <div className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[var(--color-accent-token)]/10 text-[var(--color-accent-token)]">
+                  {scanning ? (
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  ) : (
+                    <Upload className="h-5 w-5" />
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 text-sm font-bold text-[var(--color-ink)]">
+                    <Sparkles className="h-3.5 w-3.5 text-[var(--color-accent-token)]" />
+                    {scanning ? "Analizando con IA…" : "Autocompletar con IA"}
+                  </div>
+                  <p className="text-xs font-medium text-muted-foreground">
+                    {scanning
+                      ? "Extrayendo aerolínea, vuelo, ruta y horarios del voucher."
+                      : "Sube tu voucher o captura de la reserva y completamos estos campos por ti."}
+                  </p>
+                </div>
+              </label>
+
               <div className="grid gap-5 sm:grid-cols-2">
                 <Field label="Aerolínea">
-                  <select
-                    className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm font-medium focus:border-[var(--color-primary-token)] focus:ring-[var(--color-primary-token)]"
-                    value={data.airline}
-                    onChange={(e) => setData({ ...data, airline: e.target.value })}
-                  >
-                    {airlines.map((a) => (
-                      <option key={a}>{a}</option>
-                    ))}
-                  </select>
+                  <div className="relative">
+                    <select
+                      className="w-full appearance-none rounded-xl border border-border bg-background py-3 pl-4 pr-10 text-sm font-medium focus:border-[var(--color-primary-token)] focus:ring-[var(--color-primary-token)]"
+                      value={data.airline}
+                      onChange={(e) => setData({ ...data, airline: e.target.value })}
+                    >
+                      {airlines.map((a) => (
+                        <option key={a}>{a}</option>
+                      ))}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  </div>
                 </Field>
                 <Field label="Número de vuelo">
                   <input
@@ -199,15 +305,18 @@ function Publish() {
                   />
                 </Field>
                 <Field label="Equipaje">
-                  <select
-                    className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm font-medium focus:border-[var(--color-primary-token)] focus:ring-[var(--color-primary-token)]"
-                    value={data.baggage}
-                    onChange={(e) => setData({ ...data, baggage: e.target.value })}
-                  >
-                    <option>solo cabina</option>
-                    <option>23kg incluido</option>
-                    <option>cabina + 23kg</option>
-                  </select>
+                  <div className="relative">
+                    <select
+                      className="w-full appearance-none rounded-xl border border-border bg-background py-3 pl-4 pr-10 text-sm font-medium focus:border-[var(--color-primary-token)] focus:ring-[var(--color-primary-token)]"
+                      value={data.baggage}
+                      onChange={(e) => setData({ ...data, baggage: e.target.value })}
+                    >
+                      <option>solo cabina</option>
+                      <option>23kg incluido</option>
+                      <option>cabina + 23kg</option>
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  </div>
                 </Field>
               </div>
 
@@ -217,30 +326,36 @@ function Publish() {
                 </div>
                 <div className="grid gap-5 sm:grid-cols-2">
                   <Field label="Origen">
-                    <select
-                      className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm font-medium focus:border-[var(--color-primary-token)] focus:ring-[var(--color-primary-token)]"
-                      value={data.from}
-                      onChange={(e) => setData({ ...data, from: e.target.value })}
-                    >
-                      {airportsList.map((a) => (
-                        <option key={a.code} value={a.code}>
-                          {a.city} ({a.code})
-                        </option>
-                      ))}
-                    </select>
+                    <div className="relative">
+                      <select
+                        className="w-full appearance-none rounded-xl border border-border bg-background py-3 pl-4 pr-10 text-sm font-medium focus:border-[var(--color-primary-token)] focus:ring-[var(--color-primary-token)]"
+                        value={data.from}
+                        onChange={(e) => setData({ ...data, from: e.target.value })}
+                      >
+                        {airportsList.map((a) => (
+                          <option key={a.code} value={a.code}>
+                            {a.city} ({a.code})
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    </div>
                   </Field>
                   <Field label="Destino">
-                    <select
-                      className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm font-medium focus:border-[var(--color-primary-token)] focus:ring-[var(--color-primary-token)]"
-                      value={data.to}
-                      onChange={(e) => setData({ ...data, to: e.target.value })}
-                    >
-                      {airportsList.map((a) => (
-                        <option key={a.code} value={a.code}>
-                          {a.city} ({a.code})
-                        </option>
-                      ))}
-                    </select>
+                    <div className="relative">
+                      <select
+                        className="w-full appearance-none rounded-xl border border-border bg-background py-3 pl-4 pr-10 text-sm font-medium focus:border-[var(--color-primary-token)] focus:ring-[var(--color-primary-token)]"
+                        value={data.to}
+                        onChange={(e) => setData({ ...data, to: e.target.value })}
+                      >
+                        {airportsList.map((a) => (
+                          <option key={a.code} value={a.code}>
+                            {a.city} ({a.code})
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    </div>
                   </Field>
                   <Field label="Fecha">
                     <input
@@ -293,30 +408,36 @@ function Publish() {
                   </div>
                   <div className="grid gap-5 sm:grid-cols-2">
                     <Field label="Origen">
-                      <select
-                        className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm font-medium focus:border-[var(--color-primary-token)] focus:ring-[var(--color-primary-token)]"
-                        value={data.returnFrom}
-                        onChange={(e) => setData({ ...data, returnFrom: e.target.value })}
-                      >
-                        {airportsList.map((a) => (
-                          <option key={a.code} value={a.code}>
-                            {a.city} ({a.code})
-                          </option>
-                        ))}
-                      </select>
+                      <div className="relative">
+                        <select
+                          className="w-full appearance-none rounded-xl border border-border bg-background py-3 pl-4 pr-10 text-sm font-medium focus:border-[var(--color-primary-token)] focus:ring-[var(--color-primary-token)]"
+                          value={data.returnFrom}
+                          onChange={(e) => setData({ ...data, returnFrom: e.target.value })}
+                        >
+                          {airportsList.map((a) => (
+                            <option key={a.code} value={a.code}>
+                              {a.city} ({a.code})
+                            </option>
+                          ))}
+                        </select>
+                        <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      </div>
                     </Field>
                     <Field label="Destino">
-                      <select
-                        className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm font-medium focus:border-[var(--color-primary-token)] focus:ring-[var(--color-primary-token)]"
-                        value={data.returnTo}
-                        onChange={(e) => setData({ ...data, returnTo: e.target.value })}
-                      >
-                        {airportsList.map((a) => (
-                          <option key={a.code} value={a.code}>
-                            {a.city} ({a.code})
-                          </option>
-                        ))}
-                      </select>
+                      <div className="relative">
+                        <select
+                          className="w-full appearance-none rounded-xl border border-border bg-background py-3 pl-4 pr-10 text-sm font-medium focus:border-[var(--color-primary-token)] focus:ring-[var(--color-primary-token)]"
+                          value={data.returnTo}
+                          onChange={(e) => setData({ ...data, returnTo: e.target.value })}
+                        >
+                          {airportsList.map((a) => (
+                            <option key={a.code} value={a.code}>
+                              {a.city} ({a.code})
+                            </option>
+                          ))}
+                        </select>
+                        <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      </div>
                     </Field>
                     <Field label="Fecha">
                       <input
@@ -384,47 +505,29 @@ function Publish() {
                   dejarlo pendiente.
                 </p>
               </div>
-              <Field label="¿Tu tarifa incluye selección de asiento?">
-                <div className="inline-flex self-start rounded-full border border-border bg-white p-1 shadow-sm">
-                  <PillToggle
-                    active={data.asientoTipo === "aleatorio"}
-                    onClick={() => setData({ ...data, asientoTipo: "aleatorio" })}
-                    label="No"
-                  />
-                  <PillToggle
-                    active={data.asientoTipo === "seleccionado"}
-                    onClick={() => setData({ ...data, asientoTipo: "seleccionado" })}
-                    label="Sí"
-                  />
-                </div>
-              </Field>
+              {vendeIda && (
+                <AsientoFields
+                  title={data.hasReturn ? "Asiento de ida" : undefined}
+                  tipo={data.asientoIdaTipo}
+                  categoria={data.asientoIdaCategoria}
+                  numero={data.asientoIdaNumero}
+                  onTipoChange={(t) => setData({ ...data, asientoIdaTipo: t })}
+                  onCategoriaChange={(c) => setData({ ...data, asientoIdaCategoria: c })}
+                  onNumeroChange={(v) => setData({ ...data, asientoIdaNumero: v })}
+                />
+              )}
 
-              {data.asientoTipo === "seleccionado" ? (
-                <div className="grid gap-5 sm:grid-cols-2">
-                  <Field label="Categoría">
-                    <div className="inline-flex flex-wrap self-start rounded-full border border-border bg-white p-1 shadow-sm">
-                      {(["ventana", "medio", "pasillo"] as AsientoCategoria[]).map((c) => (
-                        <PillToggle
-                          key={c}
-                          active={data.asientoCategoria === c}
-                          onClick={() => setData({ ...data, asientoCategoria: c })}
-                          label={ASIENTO_CATEGORIA_LABEL[c]}
-                        />
-                      ))}
-                    </div>
-                  </Field>
-                  <Field label="Número de asiento (opcional)">
-                    <input
-                      className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm font-medium focus:border-[var(--color-primary-token)] focus:ring-[var(--color-primary-token)]"
-                      placeholder="12A"
-                      value={data.asientoNumero}
-                      onChange={(e) => setData({ ...data, asientoNumero: e.target.value })}
-                    />
-                  </Field>
-                </div>
-              ) : (
-                <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-4 text-xs font-medium text-muted-foreground leading-relaxed">
-                  {ASIENTO_ALEATORIO_MENSAJE}
+              {vendeRegreso && (
+                <div className={vendeIda ? "border-t border-dashed border-gray-200 pt-6" : ""}>
+                  <AsientoFields
+                    title="Asiento de vuelta"
+                    tipo={data.asientoRegresoTipo}
+                    categoria={data.asientoRegresoCategoria}
+                    numero={data.asientoRegresoNumero}
+                    onTipoChange={(t) => setData({ ...data, asientoRegresoTipo: t })}
+                    onCategoriaChange={(c) => setData({ ...data, asientoRegresoCategoria: c })}
+                    onNumeroChange={(v) => setData({ ...data, asientoRegresoNumero: v })}
+                  />
                 </div>
               )}
             </div>
@@ -552,15 +655,44 @@ function Publish() {
                 </div>
               </Field>
               <Field label="Tu precio de reventa">
-                <div className="flex items-center gap-2 rounded-xl border border-[var(--color-primary-token)] bg-background px-4 py-3 text-sm ring-1 ring-[var(--color-primary-token)]">
-                  <span className="text-[var(--color-primary-token)] font-bold">S/</span>
+                <div
+                  className={`flex items-center gap-2 rounded-xl border bg-background px-4 py-3 text-sm ${
+                    !precioTouched
+                      ? "border-border"
+                      : precioError
+                        ? "border-[var(--destructive)] ring-1 ring-[var(--destructive)]"
+                        : "border-[var(--color-secondary-token)] ring-1 ring-[var(--color-secondary-token)]"
+                  }`}
+                >
+                  <span
+                    className={`font-bold ${
+                      !precioTouched
+                        ? "text-muted-foreground"
+                        : precioError
+                          ? "text-[var(--destructive)]"
+                          : "text-[var(--color-secondary-token)]"
+                    }`}
+                  >
+                    S/
+                  </span>
                   <input
                     type="number"
-                    className="w-full bg-transparent font-mono text-lg font-bold text-[var(--color-ink)] focus:outline-none"
+                    min={precioMinimo}
+                    max={precioMaximo}
+                    className="w-full bg-transparent font-mono font-bold text-[var(--color-ink)] focus:outline-none"
                     value={data.price}
-                    onChange={(e) => setData({ ...data, price: Number(e.target.value) })}
+                    onFocus={() => setPrecioTouched(true)}
+                    onChange={(e) => {
+                      setPrecioTouched(true);
+                      setData({ ...data, price: Number(e.target.value) });
+                    }}
                   />
                 </div>
+                {precioTouched && precioError && (
+                  <p className="mt-1.5 text-xs font-bold text-[var(--destructive)]">
+                    {precioError}
+                  </p>
+                )}
               </Field>
             </div>
 
@@ -674,12 +806,35 @@ function Publish() {
             <h2 className="font-display text-3xl font-extrabold text-[var(--color-ink)]">
               Confirmar publicación
             </h2>
+
+            <Field label="Nota para compradores (opcional)">
+              <textarea
+                rows={3}
+                maxLength={280}
+                placeholder="Ej. Cambio de planes, endoso rápido, respondo en minutos…"
+                value={data.notaVendedor}
+                onChange={(e) => setData({ ...data, notaVendedor: e.target.value })}
+                className="w-full resize-none rounded-xl border border-border bg-background px-4 py-3 text-sm font-medium focus:border-[var(--color-primary-token)] focus:ring-[var(--color-primary-token)]"
+              />
+              <p className="text-right text-[11px] font-medium text-muted-foreground">
+                {data.notaVendedor.length}/280
+              </p>
+            </Field>
+
             <dl className="divide-y divide-gray-100 rounded-2xl border border-border bg-gray-50 text-sm overflow-hidden">
               <Info2 k="Vuelo" v={`${data.airline} ${data.flightNumber || "—"}`} />
               <Info2 k="Ruta" v={rutaLabel()} />
               {data.hasReturn && <Info2 k="Vendiendo" v={tramoAVenderLabel(data.tramoAVender)} />}
               <Info2 k="Fecha" v={`${data.date || "—"} ${data.time}`} />
-              <Info2 k="Asiento" v={asientoLabel(asiento)} />
+              {vendeIda && (
+                <Info2
+                  k={data.hasReturn ? "Asiento (ida)" : "Asiento"}
+                  v={asientoLabel(asientoIda)}
+                />
+              )}
+              {vendeRegreso && asientoRegreso && (
+                <Info2 k="Asiento (vuelta)" v={asientoLabel(asientoRegreso)} />
+              )}
               <Info2 k="Equipaje" v={data.baggage} />
               <Info2
                 k="Pasajero"
@@ -718,11 +873,79 @@ function Publish() {
         </button>
         <button
           onClick={() => setStep((s) => s + 1)}
-          className="inline-flex flex-1 sm:flex-none justify-center items-center gap-2 rounded-full bg-[var(--color-primary-token)] px-10 py-3.5 text-sm font-bold text-white shadow-sm transition-transform hover:scale-105"
+          disabled={step === 2 && !!precioError}
+          className="inline-flex flex-1 sm:flex-none justify-center items-center gap-2 rounded-full bg-[var(--color-primary-token)] px-10 py-3.5 text-sm font-bold text-white shadow-sm transition-transform hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
         >
           {step === 3 ? "Publicar pasaje" : "Continuar"} <ArrowRight className="h-4 w-4" />
         </button>
       </div>
+    </div>
+  );
+}
+
+function AsientoFields({
+  title,
+  tipo,
+  categoria,
+  numero,
+  onTipoChange,
+  onCategoriaChange,
+  onNumeroChange,
+}: {
+  title?: string;
+  tipo: Asiento["tipo"];
+  categoria: AsientoCategoria | null;
+  numero: string;
+  onTipoChange: (t: Asiento["tipo"]) => void;
+  onCategoriaChange: (c: AsientoCategoria) => void;
+  onNumeroChange: (v: string) => void;
+}) {
+  return (
+    <div className="space-y-4">
+      {title && <div className="text-sm font-bold text-[var(--color-ink)]">{title}</div>}
+      <Field label="¿Tu tarifa incluye selección de asiento?">
+        <div className="inline-flex self-start rounded-full border border-border bg-white p-1 shadow-sm">
+          <PillToggle
+            active={tipo === "aleatorio"}
+            onClick={() => onTipoChange("aleatorio")}
+            label="No"
+          />
+          <PillToggle
+            active={tipo === "seleccionado"}
+            onClick={() => onTipoChange("seleccionado")}
+            label="Sí"
+          />
+        </div>
+      </Field>
+
+      {tipo === "seleccionado" ? (
+        <div className="grid gap-5 sm:grid-cols-2">
+          <Field label="Categoría">
+            <div className="inline-flex flex-wrap self-start rounded-full border border-border bg-white p-1 shadow-sm">
+              {(["ventana", "medio", "pasillo"] as AsientoCategoria[]).map((c) => (
+                <PillToggle
+                  key={c}
+                  active={categoria === c}
+                  onClick={() => onCategoriaChange(c)}
+                  label={ASIENTO_CATEGORIA_LABEL[c]}
+                />
+              ))}
+            </div>
+          </Field>
+          <Field label="Número de asiento (opcional)">
+            <input
+              className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm font-medium focus:border-[var(--color-primary-token)] focus:ring-[var(--color-primary-token)]"
+              placeholder="12A"
+              value={numero}
+              onChange={(e) => onNumeroChange(e.target.value)}
+            />
+          </Field>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-4 text-xs font-medium text-muted-foreground leading-relaxed">
+          {ASIENTO_ALEATORIO_MENSAJE}
+        </div>
+      )}
     </div>
   );
 }

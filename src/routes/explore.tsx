@@ -1,28 +1,98 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState, useEffect, useRef } from "react";
-import { Bell, Calendar, Search, SlidersHorizontal, AlertTriangle } from "lucide-react";
+import {
+  Bell,
+  BellRing,
+  CheckCircle2,
+  ChevronDown,
+  Mail,
+  SlidersHorizontal,
+  AlertTriangle,
+  ArrowLeftRight,
+  ArrowUpDown,
+} from "lucide-react";
 import { z } from "zod";
 import gsap from "gsap";
 
-import { flights, airportsList, airlines, type AsientoCategoria } from "@/lib/mock-data";
+import {
+  flights,
+  airportsList,
+  airlines,
+  currentUser,
+  type AsientoCategoria,
+  type Flight,
+} from "@/lib/mock-data";
 import {
   activeFlights,
   lastCallFlights,
-  fmtDay,
-  fmtDate,
   S,
   tramoVigente,
+  asientoVigente,
+  discountPct,
   ASIENTO_CATEGORIA_LABEL,
 } from "@/lib/flight-utils";
 import { FlightCard } from "@/components/site/FlightCard";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Slider } from "@/components/ui/slider";
+import { useAlerts } from "@/lib/alerts-context";
 import { toast } from "sonner";
 
+type RangoPreset = "semana" | "quince" | "mes" | "fecha";
+type SortBy = "relevancia" | "precio_asc" | "precio_desc" | "salida_proxima" | "descuento";
+
+const RANGO_LABEL: Record<RangoPreset, string> = {
+  semana: "Próxima semana",
+  quince: "Próximos 15 días",
+  mes: "Próximo mes",
+  fecha: "Ingresar fecha",
+};
+
+const RANGO_DIAS: Record<"semana" | "quince" | "mes", number> = {
+  semana: 7,
+  quince: 15,
+  mes: 30,
+};
+
+const SORT_LABEL: Record<SortBy, string> = {
+  relevancia: "Relevancia",
+  precio_asc: "Precio: menor a mayor",
+  precio_desc: "Precio: mayor a menor",
+  salida_proxima: "Salida más próxima",
+  descuento: "Mayor descuento",
+};
+
+function sortFlights(list: Flight[], sortBy: SortBy): Flight[] {
+  const arr = [...list];
+  switch (sortBy) {
+    case "precio_asc":
+      return arr.sort((a, b) => a.resalePrice - b.resalePrice);
+    case "precio_desc":
+      return arr.sort((a, b) => b.resalePrice - a.resalePrice);
+    case "salida_proxima":
+      return arr.sort(
+        (a, b) =>
+          new Date(tramoVigente(a).departureAt).getTime() -
+          new Date(tramoVigente(b).departureAt).getTime(),
+      );
+    case "descuento":
+      return arr.sort((a, b) => discountPct(b) - discountPct(a));
+    default:
+      return arr;
+  }
+}
+
 const searchSchema = z.object({
-  mode: z.enum(["specific", "flexible"]).optional(),
   from: z.string().optional(),
   to: z.string().optional(),
+  rango: z.enum(["semana", "quince", "mes", "fecha"]).optional(),
   date: z.string().optional(),
-  lane: z.enum(["active", "last_call"]).optional(),
 });
 
 export const Route = createFileRoute("/explore")({
@@ -30,7 +100,10 @@ export const Route = createFileRoute("/explore")({
   head: () => ({
     meta: [
       { title: "Explorar vuelos disponibles — Traspaso" },
-      { name: "description", content: "Encuentra pasajes aéreos nacionales endosables por otras personas." },
+      {
+        name: "description",
+        content: "Encuentra pasajes aéreos nacionales endosables por otras personas.",
+      },
     ],
   }),
   component: Explore,
@@ -39,53 +112,69 @@ export const Route = createFileRoute("/explore")({
 function Explore() {
   const search = Route.useSearch();
   const navigate = useNavigate({ from: "/explore" });
-  const mode = search.mode ?? "flexible";
+  const rango = search.rango ?? "mes";
 
   const [airlineFilter, setAirlineFilter] = useState<string>("all");
-  const [maxPrice, setMaxPrice] = useState<number>(400);
   const [seatFilter, setSeatFilter] = useState<AsientoCategoria | "all">("all");
+  const [priceRange, setPriceRange] = useState<[number, number]>([50, 500]);
+  const [sortBy, setSortBy] = useState<SortBy>("relevancia");
+  const [alertSaved, setAlertSaved] = useState(false);
+  const { addAlerta } = useAlerts();
 
   const active = useMemo(() => activeFlights(flights), []);
   const lastCall = useMemo(() => lastCallFlights(flights), []);
 
+  const rangoLimite = rango === "fecha" ? null : Date.now() + RANGO_DIAS[rango] * 86400_000;
+  const selectedDate = rango === "fecha" && search.date ? new Date(search.date) : null;
+
   const filtered = active.filter((f) => {
     if (airlineFilter !== "all" && f.airline !== airlineFilter) return false;
-    if (f.resalePrice > maxPrice) return false;
-    if (seatFilter !== "all" && f.asiento.categoria !== seatFilter) return false;
+    if (seatFilter !== "all" && asientoVigente(f).categoria !== seatFilter) return false;
+    if (f.resalePrice < priceRange[0] || f.resalePrice > priceRange[1]) return false;
     const tramo = tramoVigente(f);
     if (search.from && tramo.origin.code !== search.from) return false;
     if (search.to && tramo.destination.code !== search.to) return false;
+    const departureAt = new Date(tramo.departureAt);
+    if (rango === "fecha") {
+      if (!selectedDate) return false;
+      if (
+        departureAt.getFullYear() !== selectedDate.getFullYear() ||
+        departureAt.getMonth() !== selectedDate.getMonth() ||
+        departureAt.getDate() !== selectedDate.getDate()
+      )
+        return false;
+    } else if (rangoLimite !== null && departureAt.getTime() > rangoLimite) {
+      return false;
+    }
     return true;
   });
 
-  const specificDate = search.date ? new Date(search.date) : null;
-  const specificMatches = specificDate
-    ? filtered.filter((f) => {
-        const d = new Date(tramoVigente(f).departureAt);
-        return (
-          d.getDate() === specificDate.getDate() &&
-          d.getMonth() === specificDate.getMonth()
-        );
-      })
-    : [];
+  const results = sortFlights(filtered, sortBy);
+  const filtrosActivos =
+    (airlineFilter !== "all" ? 1 : 0) +
+    (seatFilter !== "all" ? 1 : 0) +
+    (priceRange[0] !== 50 || priceRange[1] !== 500 ? 1 : 0);
 
-  const nearby =
-    mode === "specific" && specificDate && specificMatches.length === 0
-      ? filtered
-          .slice()
-          .sort(
-            (a, b) =>
-              Math.abs(new Date(tramoVigente(a).departureAt).getTime() - specificDate.getTime()) -
-              Math.abs(new Date(tramoVigente(b).departureAt).getTime() - specificDate.getTime()),
-          )
-          .slice(0, 4)
-      : [];
-
-  const results = mode === "specific" ? specificMatches : filtered;
+  const ciudad = (code?: string) =>
+    code ? (airportsList.find((a) => a.code === code)?.city ?? code) : null;
+  const rutaResumen =
+    ciudad(search.from) && ciudad(search.to)
+      ? `${ciudad(search.from)} → ${ciudad(search.to)}`
+      : (ciudad(search.from) ?? ciudad(search.to) ?? "cualquier ruta");
+  const CUANDO_PREPOSICION: Record<RangoPreset, string> = {
+    semana: "en la próxima semana",
+    quince: "en los próximos 15 días",
+    mes: "en el próximo mes",
+    fecha: "",
+  };
+  const cuandoResumen =
+    rango === "fecha" && search.date
+      ? `el ${new Date(search.date).toLocaleDateString("es-PE", { day: "numeric", month: "long" })}`
+      : CUANDO_PREPOSICION[rango];
 
   // GSAP animation
   const gridRef = useRef<HTMLDivElement>(null);
-  
+
   useEffect(() => {
     if (!gridRef.current) return;
     // Animate cards inside gridRef
@@ -96,145 +185,377 @@ function Explore() {
         duration: 0.5,
         stagger: 0.1,
         ease: "power2.out",
-        clearProps: "all"
+        clearProps: "all",
       });
     }, gridRef);
     return () => ctx.revert();
-  }, [results, lastCall, mode]);
+  }, [results, lastCall]);
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 md:py-12" ref={gridRef}>
-      <div className="flex items-baseline justify-between gap-4">
-        <div>
-          <h1 className="font-display text-4xl md:text-5xl font-extrabold text-[var(--color-ink)]">Explorar vuelos</h1>
-          <p className="mt-2 text-sm text-muted-foreground font-medium">
+      <div
+        className="relative overflow-hidden rounded-[2rem] p-6 shadow-sm md:p-10"
+        style={{
+          background:
+            "linear-gradient(135deg, var(--color-primary-token), var(--color-accent-token))",
+        }}
+      >
+        <div
+          className="pointer-events-none absolute -right-16 -top-16 h-64 w-64 rounded-full bg-white/10"
+          aria-hidden
+        />
+        <div
+          className="pointer-events-none absolute -bottom-20 left-1/3 h-56 w-56 rounded-full bg-white/5"
+          aria-hidden
+        />
+
+        <div className="relative">
+          <h1 className="font-display text-4xl font-extrabold text-white md:text-5xl">
+            Explorar vuelos
+          </h1>
+          <p className="mt-2 text-sm font-medium text-white/80">
             Solo mostramos pasajes con endoso viable. Los vencidos se ocultan automáticamente.
           </p>
         </div>
-      </div>
 
-      {/* Mode switch */}
-      <div className="mt-8 inline-flex rounded-full border border-border bg-white p-1 shadow-sm">
-        <ModeTab
-          active={mode === "specific"}
-          onClick={() => navigate({ search: { ...search, mode: "specific" } })}
-          icon={<Calendar className="h-4 w-4" />}
-          title="Tengo una fecha fija"
-          subtitle="Poca flexibilidad"
-        />
-        <ModeTab
-          active={mode === "flexible"}
-          onClick={() => navigate({ search: { ...search, mode: "flexible" } })}
-          icon={<Search className="h-4 w-4" />}
-          title="Ver ofertas disponibles"
-          subtitle="Prioriza precio"
-        />
-      </div>
-
-      {/* Search bar */}
-      <div className="mt-6 grid gap-3 rounded-2xl border border-border bg-white p-5 shadow-sm md:grid-cols-[1fr_1fr_1fr_auto]">
-        <SelectField
-          label="Origen"
-          value={search.from ?? ""}
-          onChange={(v) => navigate({ search: { ...search, from: v || undefined } })}
-          options={[["", "Cualquiera"], ...airportsList.map((a) => [a.code, `${a.city} (${a.code})`] as [string, string])]}
-        />
-        <SelectField
-          label="Destino"
-          value={search.to ?? ""}
-          onChange={(v) => navigate({ search: { ...search, to: v || undefined } })}
-          options={[["", "Cualquiera"], ...airportsList.map((a) => [a.code, `${a.city} (${a.code})`] as [string, string])]}
-        />
-        {mode === "specific" ? (
-          <div className="flex flex-col">
-            <label className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
-              Fecha exacta
-            </label>
-            <input
-              type="date"
-              className="mt-1.5 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium"
-              value={search.date ?? ""}
-              onChange={(e) =>
-                navigate({ search: { ...search, date: e.target.value || undefined } })
-              }
-            />
-          </div>
-        ) : (
-          <div className="flex flex-col">
-            <label className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
-              Rango
-            </label>
-            <div className="mt-1.5 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium text-[var(--color-ink)]">
-              Próximos 14 días
+        {/* Search bar */}
+        <div className="relative mt-8 grid gap-3 rounded-2xl bg-white p-5 shadow-lg md:grid-cols-[2fr_1fr_auto]">
+          <div className="flex items-end gap-3">
+            <div className="min-w-0 flex-1">
+              <SelectField
+                label="Origen"
+                value={search.from ?? ""}
+                onChange={(v) => navigate({ search: { ...search, from: v || undefined } })}
+                options={[
+                  ["", "Cualquiera"],
+                  ...airportsList.map((a) => [a.code, `${a.city} (${a.code})`] as [string, string]),
+                ]}
+              />
+            </div>
+            <div className="hidden w-8 shrink-0 flex-col overflow-hidden md:flex">
+              <span className="invisible whitespace-nowrap text-[11px] font-bold uppercase tracking-widest">
+                Intercambiar
+              </span>
+              <div className="mt-1.5 flex h-[38px] items-center justify-center">
+                <button
+                  type="button"
+                  onClick={() =>
+                    navigate({ search: { ...search, from: search.to, to: search.from } })
+                  }
+                  aria-label="Intercambiar origen y destino"
+                  className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-border bg-white text-muted-foreground shadow-sm transition-colors hover:border-[var(--color-primary-token)] hover:text-[var(--color-primary-token)]"
+                >
+                  <ArrowLeftRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+            <div className="min-w-0 flex-1">
+              <SelectField
+                label="Destino"
+                value={search.to ?? ""}
+                onChange={(v) => navigate({ search: { ...search, to: v || undefined } })}
+                options={[
+                  ["", "Cualquiera"],
+                  ...airportsList.map((a) => [a.code, `${a.city} (${a.code})`] as [string, string]),
+                ]}
+              />
             </div>
           </div>
-        )}
-        <div className="flex items-end">
-          <button className="inline-flex h-[38px] w-full items-center justify-center gap-2 rounded-lg bg-[var(--color-primary-token)] px-6 text-sm font-bold text-white transition-colors hover:bg-[var(--color-primary-token)]/90 md:w-auto">
-            <Search className="h-4 w-4" /> Buscar
-          </button>
+          <div className="flex flex-col">
+            <div className="flex items-center justify-between">
+              <label className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
+                Rango
+              </label>
+              {rango === "fecha" && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    navigate({ search: { ...search, rango: undefined, date: undefined } })
+                  }
+                  className="text-[11px] font-bold text-[var(--color-primary-token)] hover:underline"
+                >
+                  Cambiar
+                </button>
+              )}
+            </div>
+            {rango === "fecha" ? (
+              <input
+                type="date"
+                autoFocus
+                className="mt-1.5 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium focus:border-[var(--color-primary-token)] focus:ring-[var(--color-primary-token)]"
+                value={search.date ?? ""}
+                onChange={(e) =>
+                  navigate({ search: { ...search, date: e.target.value || undefined } })
+                }
+              />
+            ) : (
+              <div className="relative mt-1.5">
+                <select
+                  value={rango}
+                  onChange={(e) => {
+                    const next = e.target.value as RangoPreset;
+                    navigate({
+                      search: {
+                        ...search,
+                        rango: next,
+                        date: next === "fecha" ? search.date : undefined,
+                      },
+                    });
+                  }}
+                  className="w-full appearance-none rounded-lg border border-border bg-background py-2 pl-3 pr-9 text-sm font-medium focus:border-[var(--color-primary-token)] focus:ring-[var(--color-primary-token)]"
+                >
+                  {(Object.keys(RANGO_LABEL) as RangoPreset[]).map((r) => (
+                    <option key={r} value={r}>
+                      {RANGO_LABEL[r]}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-end">
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className="inline-flex h-[38px] items-center gap-2 rounded-lg border border-border bg-white px-4 text-sm font-bold text-[var(--color-ink)] hover:bg-gray-50 transition-colors"
+                >
+                  <SlidersHorizontal className="h-4 w-4" /> Más filtros
+                  {filtrosActivos > 0 && (
+                    <span className="grid h-4 w-4 place-items-center rounded-full bg-[var(--color-primary-token)] text-[10px] font-bold text-white">
+                      {filtrosActivos}
+                    </span>
+                  )}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-80 space-y-5" align="end">
+                <div className="text-xs font-bold uppercase tracking-widest text-[var(--color-ink)]">
+                  Más filtros
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
+                    Aerolínea
+                  </label>
+                  <div className="relative">
+                    <select
+                      value={airlineFilter}
+                      onChange={(e) => setAirlineFilter(e.target.value)}
+                      className="w-full appearance-none rounded-lg border border-border bg-background py-2 pl-3 pr-9 text-sm font-medium focus:border-[var(--color-primary-token)] focus:ring-[var(--color-primary-token)]"
+                    >
+                      <option value="all">Todas</option>
+                      {airlines.map((a) => (
+                        <option key={a} value={a}>
+                          {a}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
+                    Asiento
+                  </label>
+                  <div className="relative">
+                    <select
+                      value={seatFilter}
+                      onChange={(e) => setSeatFilter(e.target.value as AsientoCategoria | "all")}
+                      className="w-full appearance-none rounded-lg border border-border bg-background py-2 pl-3 pr-9 text-sm font-medium focus:border-[var(--color-primary-token)] focus:ring-[var(--color-primary-token)]"
+                    >
+                      <option value="all">Todos</option>
+                      {(["ventana", "medio", "pasillo"] as AsientoCategoria[]).map((c) => (
+                        <option key={c} value={c}>
+                          {ASIENTO_CATEGORIA_LABEL[c]}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
+                      Precio
+                    </label>
+                    <span className="font-mono text-xs font-bold text-[var(--color-ink)]">
+                      {S(priceRange[0])} – {S(priceRange[1])}
+                    </span>
+                  </div>
+                  <Slider
+                    min={50}
+                    max={500}
+                    step={10}
+                    value={priceRange}
+                    onValueChange={(v) => setPriceRange([v[0], v[1]])}
+                    className="py-2"
+                  />
+                </div>
+                {filtrosActivos > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAirlineFilter("all");
+                      setSeatFilter("all");
+                      setPriceRange([50, 500]);
+                    }}
+                    className="text-xs font-bold text-[var(--color-primary-token)] hover:underline"
+                  >
+                    Limpiar filtros
+                  </button>
+                )}
+              </PopoverContent>
+            </Popover>
+          </div>
         </div>
       </div>
 
-      {/* Secondary filters */}
-      <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
-        <div className="flex items-center gap-2 text-muted-foreground bg-white px-3 py-1.5 rounded-full border border-border">
-          <SlidersHorizontal className="h-4 w-4" /> Filtros
-        </div>
-        <PillSelect
-          label="Aerolínea"
-          value={airlineFilter}
-          onChange={setAirlineFilter}
-          options={[["all", "Todas"], ...airlines.map((a) => [a, a] as [string, string])]}
-        />
-        <PillSelect
-          label="Asiento"
-          value={seatFilter}
-          onChange={(v) => setSeatFilter(v as AsientoCategoria | "all")}
-          options={[
-            ["all", "Todos"],
-            ...(["ventana", "medio", "pasillo"] as AsientoCategoria[]).map(
-              (c) => [c, ASIENTO_CATEGORIA_LABEL[c]] as [string, string],
-            ),
-          ]}
-        />
-        <div className="inline-flex items-center gap-2 rounded-full border border-border bg-white px-4 py-1.5">
-          <span className="text-muted-foreground font-medium text-xs">Máx. {S(maxPrice)}</span>
-          <input
-            type="range"
-            min={50}
-            max={500}
-            step={10}
-            value={maxPrice}
-            onChange={(e) => setMaxPrice(Number(e.target.value))}
-            className="w-24 accent-[var(--color-primary-token)]"
-          />
-        </div>
-        <span className="ml-auto text-xs font-bold text-[var(--color-primary-token)] bg-white px-3 py-1.5 rounded-full border border-border">
-          {results.length} pasaje{results.length === 1 ? "" : "s"} disponible{results.length === 1 ? "" : "s"}
+      {/* Result count + sort */}
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+        <span className="text-xs font-bold uppercase text-[var(--color-primary-token)] bg-white px-3 py-1.5 rounded-full border border-border">
+          {results.length} pasaje{results.length === 1 ? "" : "s"} disponible
+          {results.length === 1 ? "" : "s"}
         </span>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="inline-flex items-center gap-2 rounded-full border border-border bg-white px-4 py-1.5 text-xs font-bold text-[var(--color-ink)] hover:bg-gray-50 transition-colors"
+            >
+              <ArrowUpDown className="h-3.5 w-3.5" />
+              {sortBy === "relevancia" ? "Ordenar" : SORT_LABEL[sortBy]}
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuRadioGroup value={sortBy} onValueChange={(v) => setSortBy(v as SortBy)}>
+              {(Object.keys(SORT_LABEL) as SortBy[]).map((s) => (
+                <DropdownMenuRadioItem
+                  key={s}
+                  value={s}
+                  className="focus:bg-surface-2! focus:text-inherit!"
+                >
+                  {SORT_LABEL[s]}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
-      {/* Specific date: empty state with nearby + alert */}
-      {mode === "specific" && specificDate && specificMatches.length === 0 && (
-        <NoExactResults
-          date={specificDate}
-          nearby={nearby}
-          onAlert={() =>
-            toast.success("Alerta creada", {
-              description: `Te avisaremos apenas alguien publique un vuelo para ${fmtDay(
-                specificDate.toISOString(),
-              )}.`,
-            })
-          }
-        />
+      {/* Empty state */}
+      {results.length === 0 && rango === "fecha" && !selectedDate && (
+        <div className="mt-8 rounded-[2rem] border border-border bg-white p-8 md:p-10 shadow-sm text-center">
+          <div className="text-xs font-bold uppercase tracking-widest text-[var(--color-primary-token)]">
+            Un paso más
+          </div>
+          <h2 className="mt-2 font-display text-3xl font-extrabold text-[var(--color-ink)]">
+            Elige una fecha para ver los pasajes disponibles
+          </h2>
+          <p className="mx-auto mt-3 max-w-xl text-sm font-medium text-muted-foreground leading-relaxed">
+            Ya seleccionaste "Ingresar fecha" en el buscador — ahora escribe el día exacto y te
+            mostramos al instante las ofertas que salen ese día.
+          </p>
+        </div>
+      )}
+
+      {results.length === 0 && !(rango === "fecha" && !selectedDate) && (
+        <div className="mt-8 rounded-[2rem] border border-border bg-white p-8 md:p-10 shadow-sm text-center">
+          <div className="text-xs font-bold uppercase tracking-widest text-[var(--color-primary-token)]">
+            Sin resultados
+          </div>
+          <h2 className="mt-2 font-display text-3xl font-extrabold text-[var(--color-ink)]">
+            No encontramos pasajes con estos filtros
+          </h2>
+          <p className="mx-auto mt-3 max-w-xl text-sm font-medium text-muted-foreground leading-relaxed">
+            Este es un marketplace: el inventario depende de lo que otras personas publican. Prueba
+            ampliando el rango de fechas o quitando algún filtro.
+          </p>
+
+          {!(search.from && search.to) && (
+            <p className="mx-auto mt-4 max-w-xs text-xs font-medium text-muted-foreground/80">
+              Elige origen y destino para activar una alerta de este pasaje.
+            </p>
+          )}
+
+          {search.from && search.to && (
+            <>
+              {alertSaved ? (
+                <div className="relative mx-auto mt-6 max-w-sm overflow-hidden rounded-[1.5rem] border border-[var(--color-secondary-token)]/25 bg-gradient-to-br from-[var(--color-secondary-token)]/8 to-transparent text-left shadow-sm">
+                  <span className="absolute right-4 top-4 inline-block rounded-full bg-white px-2.5 py-1 text-xs font-bold text-[var(--color-ink)] shadow-sm">
+                    {rutaResumen}
+                  </span>
+                  <div className="flex items-start gap-3 p-5">
+                    <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--color-secondary-token)]/15">
+                      <CheckCircle2 className="h-5 w-5 text-[var(--color-secondary-token)]" />
+                    </div>
+                    <div className="min-w-0 pr-16">
+                      <div className="font-display text-base font-extrabold text-[var(--color-ink)]">
+                        Alerta activada
+                      </div>
+                      <div className="mt-2.5 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                        <Mail className="h-3.5 w-3.5 shrink-0" />
+                        Te escribiremos a <span className="font-bold">{currentUser.email}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => {
+                    setAlertSaved(true);
+                    addAlerta({
+                      tipo: "busqueda",
+                      titulo: "Alerta de búsqueda creada",
+                      detalle: `Te avisaremos cuando aparezca un pasaje para ${rutaResumen} ${cuandoResumen}.`,
+                      href: "/explore",
+                    });
+                    toast.success("Alerta creada", {
+                      description: `Te avisaremos por correo cuando aparezca un pasaje para ${rutaResumen} ${cuandoResumen}.`,
+                    });
+
+                    // Simulación de demo: al ratito "llega" un pasaje que calza con la alerta.
+                    const candidato =
+                      active.find(
+                        (f) =>
+                          (!search.from || tramoVigente(f).origin.code === search.from) &&
+                          (!search.to || tramoVigente(f).destination.code === search.to),
+                      ) ?? active[0];
+                    window.setTimeout(() => {
+                      addAlerta({
+                        tipo: "match",
+                        titulo: "¡Apareció un pasaje!",
+                        detalle: candidato
+                          ? `${tramoVigente(candidato).origin.city} → ${tramoVigente(candidato).destination.city}, publicado por ${candidato.seller.name} a ${S(candidato.resalePrice)}.`
+                          : `Encontramos un pasaje para ${rutaResumen} ${cuandoResumen}.`,
+                        href: candidato ? `/flight/${candidato.id}` : "/explore",
+                      });
+                      toast.success("¡Apareció un pasaje!", {
+                        description: candidato
+                          ? `${tramoVigente(candidato).origin.city} → ${tramoVigente(candidato).destination.city} a ${S(candidato.resalePrice)}`
+                          : "Revisa la campanita de notificaciones.",
+                        icon: <BellRing className="h-4 w-4" />,
+                      });
+                    }, 4000);
+                  }}
+                  className="mt-6 inline-flex items-center gap-2 rounded-full bg-[var(--color-secondary-token)] px-6 py-3 text-sm font-bold text-white transition-transform hover:scale-105"
+                >
+                  <Bell className="h-4 w-4" /> Avísame cuando aparezcan pasajes
+                </button>
+              )}
+            </>
+          )}
+        </div>
       )}
 
       {/* Active grid */}
       {results.length > 0 && (
-        <section className="mt-12">
+        <section className="mt-8">
           <div className="mb-6 flex items-baseline justify-between">
-            <h2 className="font-display text-2xl font-extrabold text-[var(--color-ink)]">Ofertas activas</h2>
+            <h2 className="font-display text-2xl font-extrabold text-[var(--color-ink)]">
+              Ofertas activas
+            </h2>
             <span className="text-xs font-bold uppercase text-[var(--color-secondary-token)]">
               +24h para el endoso
             </span>
@@ -258,11 +579,12 @@ function Explore() {
                 <AlertTriangle className="h-6 w-6 text-[var(--color-ink)]" />
               </div>
               <div>
-                <h2 className="font-display text-2xl font-extrabold text-[var(--color-ink)]">Última llamada</h2>
-                <p className="mt-2 max-w-2xl text-sm font-medium text-[var(--color-ink)]/70 leading-relaxed">
-                  Estos pasajes salen en menos de 24 horas. El trámite de endoso puede
-                  ser ajustado — solo compra si puedes coordinar en cuestión de horas.
-                  <br />
+                <h2 className="font-display text-2xl font-extrabold text-[var(--color-ink)]">
+                  Última llamada
+                </h2>
+                <p className="mt-2 text-sm font-medium text-[var(--color-ink)]/70 leading-relaxed">
+                  Estos pasajes salen en menos de 24 horas. El trámite de endoso puede ser ajustado
+                  — solo compra si puedes coordinar en cuestión de horas.{" "}
                   <span className="text-[var(--color-primary-token)] font-bold">
                     No se recomiendan para quien busca certeza total.
                   </span>
@@ -283,47 +605,6 @@ function Explore() {
   );
 }
 
-function ModeTab({
-  active,
-  onClick,
-  icon,
-  title,
-  subtitle,
-}: {
-  active: boolean;
-  onClick: () => void;
-  icon: React.ReactNode;
-  title: string;
-  subtitle: string;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`flex items-center gap-3 rounded-full px-5 py-2.5 text-left transition-colors ${
-        active ? "bg-[var(--color-ink)] text-white shadow-md" : "text-muted-foreground hover:bg-gray-50"
-      }`}
-    >
-      <span
-        className={`grid h-8 w-8 shrink-0 place-items-center rounded-full ${
-          active ? "bg-white/20 text-white" : "bg-gray-100 text-gray-500"
-        }`}
-      >
-        {icon}
-      </span>
-      <span className="flex flex-col leading-tight">
-        <span className="text-sm font-bold">{title}</span>
-        <span
-          className={`text-[11px] font-medium ${
-            active ? "text-gray-300" : "text-gray-400"
-          }`}
-        >
-          {subtitle}
-        </span>
-      </span>
-    </button>
-  );
-}
-
 function SelectField({
   label,
   value,
@@ -340,115 +621,20 @@ function SelectField({
       <label className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
         {label}
       </label>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="mt-1.5 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium focus:border-[var(--color-primary-token)] focus:ring-[var(--color-primary-token)]"
-      >
-        {options.map(([v, l]) => (
-          <option key={v} value={v}>
-            {l}
-          </option>
-        ))}
-      </select>
-    </div>
-  );
-}
-
-function PillSelect({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  options: [string, string][];
-}) {
-  return (
-    <label className="inline-flex items-center gap-2 rounded-full border border-border bg-white px-4 py-1.5">
-      <span className="text-muted-foreground font-bold text-xs">{label}</span>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="bg-transparent text-[var(--color-ink)] text-xs font-medium focus:outline-none"
-      >
-        {options.map(([v, l]) => (
-          <option key={v} value={v} className="bg-background">
-            {l}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
-function NoExactResults({
-  date,
-  nearby,
-  onAlert,
-}: {
-  date: Date;
-  nearby: ReturnType<typeof activeFlights>;
-  onAlert: () => void;
-}) {
-  return (
-    <div className="mt-12 rounded-[2rem] border border-border bg-white p-8 md:p-10 shadow-sm text-center md:text-left">
-      <div className="flex flex-col md:flex-row items-center md:items-start justify-between gap-6">
-        <div>
-          <div className="text-xs font-bold uppercase tracking-widest text-[var(--color-primary-token)]">
-            Sin coincidencias exactas
-          </div>
-          <h2 className="mt-2 font-display text-3xl font-extrabold text-[var(--color-ink)]">
-            Nadie ha publicado un pasaje para {fmtDay(date.toISOString())}
-          </h2>
-          <p className="mt-3 max-w-xl text-sm font-medium text-muted-foreground leading-relaxed">
-            Este es un marketplace: el inventario depende de lo que otras personas
-            publican. Te mostramos las fechas cercanas con disponibilidad real, o
-            puedes activar una alerta para esta fecha.
-          </p>
-        </div>
-        <button
-          onClick={onAlert}
-          className="inline-flex shrink-0 items-center gap-2 rounded-full bg-[var(--color-secondary-token)] px-6 py-3 text-sm font-bold text-white transition-transform hover:scale-105"
+      <div className="relative mt-1.5">
+        <select
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-full appearance-none rounded-lg border border-border bg-background py-2 pl-3 pr-9 text-sm font-medium focus:border-[var(--color-primary-token)] focus:ring-[var(--color-primary-token)]"
         >
-          <Bell className="h-4 w-4" /> Avísame cuando aparezca
-        </button>
+          {options.map(([v, l]) => (
+            <option key={v} value={v}>
+              {l}
+            </option>
+          ))}
+        </select>
+        <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
       </div>
-
-      {nearby.length > 0 && (
-        <div className="mt-10 pt-8 border-t border-dashed border-border">
-          <div className="mb-4 text-xs font-bold uppercase tracking-widest text-muted-foreground">
-            Fechas cercanas con disponibilidad
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {nearby.map((f) => {
-              const tramo = tramoVigente(f);
-              return (
-                <Link
-                  key={f.id}
-                  to="/flight/$id"
-                  params={{ id: f.id }}
-                  className="flex items-center justify-between gap-3 tarjeta-boleto p-4 hover:border-[var(--color-secondary-token)]"
-                >
-                  <div>
-                    <div className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
-                      {tramo.origin.code} → {tramo.destination.code}
-                    </div>
-                    <div className="mt-1 font-display text-lg font-bold leading-tight text-[var(--color-ink)]">
-                      {fmtDate(tramo.departureAt)}
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="font-mono text-xl font-bold text-[var(--color-primary-token)]">{S(f.resalePrice)}</div>
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { useState } from "react";
+import { z } from "zod";
 import {
   ShieldCheck,
   Lock,
@@ -9,10 +10,20 @@ import {
   Plane,
   Info,
   Bell,
-  AlertTriangle
+  AlertTriangle,
+  Heart,
+  Smartphone,
+  CreditCard,
+  Landmark,
+  Loader2,
+  Share2,
+  Copy,
+  Facebook,
+  Instagram,
 } from "lucide-react";
 
 import { flights } from "@/lib/mock-data";
+import { useSaved } from "@/lib/saved-context";
 import {
   computeStatus,
   discountPct,
@@ -23,21 +34,55 @@ import {
   tramoVigente,
   tramoAVenderLabel,
   asientoLabel,
+  asientoVigente,
   ASIENTO_ALEATORIO_MENSAJE,
 } from "@/lib/flight-utils";
 import { Countdown } from "@/components/site/Countdown";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { toast } from "sonner";
 
+function WhatsAppIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className}>
+      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z" />
+      <path d="M12.001 2C6.478 2 2 6.477 2 12c0 1.876.52 3.63 1.42 5.13L2 22l4.995-1.394A9.947 9.947 0 0 0 12 22c5.523 0 10-4.477 10-10S17.523 2 12.001 2zm0 18.06c-1.66 0-3.2-.492-4.495-1.339l-.322-.206-3.132.875.836-3.06-.209-.328A8.03 8.03 0 0 1 3.94 12c0-4.444 3.617-8.06 8.062-8.06 4.444 0 8.06 3.616 8.06 8.06 0 4.445-3.616 8.06-8.061 8.06z" />
+    </svg>
+  );
+}
+
+type MetodoPago = "yape" | "tarjeta" | "transferencia";
+
+const METODOS_PAGO: { id: MetodoPago; label: string; desc: string; Icon: typeof Smartphone }[] = [
+  { id: "yape", label: "Yape / Plin", desc: "Pago instantáneo desde tu app", Icon: Smartphone },
+  {
+    id: "tarjeta",
+    label: "Tarjeta de crédito o débito",
+    desc: "Visa, Mastercard, Amex",
+    Icon: CreditCard,
+  },
+  {
+    id: "transferencia",
+    label: "Transferencia bancaria",
+    desc: "BCP, BBVA, Interbank, Scotiabank",
+    Icon: Landmark,
+  },
+];
+
+const searchSchema = z.object({
+  from: z.enum(["dashboard"]).optional(),
+  tx: z.string().optional(),
+  vista: z.enum(["publicados", "proceso"]).optional(),
+});
+
 export const Route = createFileRoute("/flight/$id")({
+  validateSearch: (s) => searchSchema.parse(s),
   head: ({ params }) => {
     const f = flights.find((x) => x.id === params.id);
     if (!f) {
       return {
-        meta: [
-          { title: "Vuelo no disponible — Traspaso" },
-          { name: "robots", content: "noindex" },
-        ],
+        meta: [{ title: "Vuelo no disponible — Traspaso" }, { name: "robots", content: "noindex" }],
       };
     }
     const tramo = tramoVigente(f);
@@ -63,24 +108,128 @@ export const Route = createFileRoute("/flight/$id")({
 
 function FlightDetail() {
   const { flight } = Route.useLoaderData();
+  const search = Route.useSearch();
+  const { isSaved, toggleSaved } = useSaved();
   const status = computeStatus(flight);
   const [step, setStep] = useState(0);
+  const [payOpen, setPayOpen] = useState(false);
+  const [metodoPago, setMetodoPago] = useState<MetodoPago | null>(null);
+  const [procesando, setProcesando] = useState(false);
+  const [pagoExitoso, setPagoExitoso] = useState(false);
   const tramo = tramoVigente(flight);
+  const asiento = asientoVigente(flight);
   const comision = comisionPlataforma(flight.resalePrice);
   const totalARetener = flight.resalePrice + comision;
 
   // Ofertas expired nunca se muestran — bloqueamos con estado explícito
   if (status === "expired") {
-    return <ExpiredNotice id={flight.id} route={`${tramo.origin.code} → ${tramo.destination.code}`} />;
+    return (
+      <ExpiredNotice id={flight.id} route={`${tramo.origin.code} → ${tramo.destination.code}`} />
+    );
   }
 
   const isWarn = status === "last_call";
+  const saved = isSaved(flight.id);
+  const shareUrl = typeof window !== "undefined" ? window.location.href : "";
+  const shareTexto = `Mira este pasaje ${tramo.origin.code} → ${tramo.destination.code} en Traspaso`;
+
+  function copiarLink() {
+    navigator.clipboard.writeText(shareUrl);
+    toast.success("Link copiado");
+  }
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 md:py-12">
-      <Link to="/explore" className="text-sm font-bold text-[var(--color-primary-token)] hover:underline inline-flex items-center gap-1">
-        ← Volver a resultados
-      </Link>
+      <div className="flex items-center justify-between gap-4">
+        {search.from === "dashboard" ? (
+          <Link
+            to="/dashboard"
+            search={{ tx: search.tx, vista: search.vista }}
+            className="text-sm font-bold text-[var(--color-primary-token)] hover:underline inline-flex items-center gap-1"
+          >
+            ← Volver a mis operaciones
+          </Link>
+        ) : (
+          <Link
+            to="/explore"
+            className="text-sm font-bold text-[var(--color-primary-token)] hover:underline inline-flex items-center gap-1"
+          >
+            ← Volver a resultados
+          </Link>
+        )}
+        <div className="flex items-center gap-2">
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="inline-flex items-center gap-2 rounded-full border border-border bg-white px-4 py-2 text-sm font-bold text-[var(--color-ink)] shadow-sm transition-colors hover:bg-gray-50"
+              >
+                <Share2 className="h-4 w-4" /> Compartir
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-80 space-y-4">
+              <div className="flex items-center gap-2 rounded-xl border border-border bg-surface-2 px-3 py-2">
+                <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
+                  {shareUrl}
+                </span>
+                <button
+                  type="button"
+                  onClick={copiarLink}
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-[var(--color-ink)] px-2.5 py-1.5 text-xs font-bold text-white transition-transform hover:scale-105"
+                >
+                  <Copy className="h-3.5 w-3.5" /> Copiar
+                </button>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <a
+                  href={`https://wa.me/?text=${encodeURIComponent(`${shareTexto} ${shareUrl}`)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="Compartir por WhatsApp"
+                  className="grid h-11 w-11 place-items-center rounded-full bg-[#25D366] text-white transition-transform hover:scale-105"
+                >
+                  <WhatsAppIcon className="h-5 w-5" />
+                </a>
+                <a
+                  href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="Compartir en Facebook"
+                  className="grid h-11 w-11 place-items-center rounded-full bg-[#1877F2] text-white transition-transform hover:scale-105"
+                >
+                  <Facebook className="h-5 w-5" />
+                </a>
+                <button
+                  type="button"
+                  onClick={() => {
+                    copiarLink();
+                    toast.message("Instagram no permite compartir link directo", {
+                      description: "Pégalo en tu historia o en un mensaje.",
+                    });
+                  }}
+                  aria-label="Compartir en Instagram"
+                  className="grid h-11 w-11 place-items-center rounded-full bg-gradient-to-br from-[#feda75] via-[#d62976] to-[#4f5bd5] text-white transition-transform hover:scale-105"
+                >
+                  <Instagram className="h-5 w-5" />
+                </button>
+              </div>
+            </PopoverContent>
+          </Popover>
+          <button
+            type="button"
+            onClick={() => toggleSaved(flight.id)}
+            aria-pressed={saved}
+            className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-bold shadow-sm transition-colors ${
+              saved
+                ? "border-[var(--color-primary-token)]/30 bg-[var(--color-primary-token)]/10 text-[var(--color-primary-token)]"
+                : "border-border bg-white text-[var(--color-ink)] hover:bg-gray-50"
+            }`}
+          >
+            <Heart className={`h-4 w-4 ${saved ? "fill-[var(--color-primary-token)]" : ""}`} />
+            {saved ? "Guardado" : "Guardar"}
+          </button>
+        </div>
+      </div>
 
       <div className="mt-6 grid gap-8 md:grid-cols-[1.4fr_1fr]">
         {/* Left: flight info */}
@@ -91,14 +240,16 @@ function FlightDetail() {
                 <AlertTriangle className="h-5 w-5 text-[var(--color-ink)]" />
               </div>
               <div>
-                <div className="font-extrabold text-[var(--color-ink)] font-display text-xl">Última llamada</div>
+                <div className="font-extrabold text-[var(--color-ink)] font-display text-xl">
+                  Última llamada
+                </div>
                 <p className="mt-1 text-sm font-medium text-[var(--color-ink)]/80 leading-relaxed">
-                  Este vuelo sale en menos de 24 horas. El trámite de endoso con la
-                  aerolínea tomará entre 1 y 3 horas. Solo continúa si puedes
-                  coordinar en tiempo real con el vendedor.
+                  Este vuelo sale en menos de 24 horas. El trámite de endoso con la aerolínea tomará
+                  entre 1 y 3 horas. Solo continúa si puedes coordinar en tiempo real con el
+                  vendedor.
                 </p>
-                <div className="mt-3 font-mono text-sm font-bold text-[var(--color-warning-token)] bg-white px-3 py-1.5 inline-block rounded-md border border-[var(--color-warning-token)]/50 shadow-sm animate-pulse-last-call">
-                  <Countdown iso={tramo.departureAt} tone="warn" />
+                <div className="mt-3">
+                  <Countdown iso={tramo.departureAt} tone="warn" size="lg" />
                 </div>
               </div>
             </div>
@@ -111,15 +262,13 @@ function FlightDetail() {
                 alt={flight.airline}
                 className="h-4 w-auto max-w-[80px] object-contain"
               />
-              {flight.airline} · <span className="font-mono">{flight.flightNumber}</span> · asiento{" "}
-              <span className="font-mono">{asientoLabel(flight.asiento)}</span>
+              {flight.airline} · <span className="font-mono">{flight.flightNumber}</span>
               <div className="ml-auto flex flex-wrap items-center gap-2">
-                {flight.asiento.tipo === "seleccionado" &&
-                  flight.asiento.categoria === "ventana" && (
-                    <span className="rounded-full bg-[var(--color-secondary-token)]/10 px-2.5 py-1 text-[10px] font-bold normal-case tracking-normal text-[var(--color-secondary-token)]">
-                      🪟 Ventana confirmada
-                    </span>
-                  )}
+                {asiento.tipo === "seleccionado" && asiento.categoria === "ventana" && (
+                  <span className="rounded-full bg-[var(--color-secondary-token)]/10 px-2.5 py-1 text-[10px] font-bold normal-case tracking-normal text-[var(--color-secondary-token)]">
+                    🪟 Ventana confirmada
+                  </span>
+                )}
                 {flight.tipoBoleto === "ida_y_vuelta" && (
                   <span className="rounded-full bg-gray-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-gray-500">
                     Esta oferta incluye: {tramoAVenderLabel(flight.tramoAVender)}
@@ -128,33 +277,97 @@ function FlightDetail() {
               </div>
             </div>
 
+            {flight.tramoAVender === "ambos" && (
+              <div className="mt-6 text-[11px] font-bold uppercase tracking-widest text-[var(--color-primary-token)]">
+                Ida
+              </div>
+            )}
+
             <div className="mt-6 flex items-center justify-between gap-4">
               <div>
-                <div className="font-display text-5xl md:text-7xl font-extrabold text-[var(--color-ink)]">{tramo.origin.code}</div>
-                <div className="mt-1 text-sm font-medium text-muted-foreground">{tramo.origin.city}</div>
+                <div className="font-display text-5xl md:text-7xl font-extrabold text-[var(--color-ink)]">
+                  {tramo.origin.code}
+                </div>
+                <div className="mt-1 text-sm font-medium text-muted-foreground">
+                  {tramo.origin.city}
+                </div>
               </div>
               <div className="flex-1 px-4">
-                <div className="relative h-px w-full border-t-2 border-dashed border-gray-300">
-                  <Plane className="absolute left-1/2 top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2 text-[var(--color-primary-token)]" />
+                <div className="flex items-center gap-2">
+                  <div className="h-px flex-1 border-t-2 border-dashed border-gray-300" />
+                  <Plane className="h-5 w-5 shrink-0 text-[var(--color-primary-token)]" />
+                  <div className="h-px flex-1 border-t-2 border-dashed border-gray-300" />
                 </div>
                 <div className="mt-2 text-center text-xs font-bold uppercase tracking-widest text-muted-foreground">
                   {tramo.durationMin} min · directo
                 </div>
               </div>
               <div className="text-right">
-                <div className="font-display text-5xl md:text-7xl font-extrabold text-[var(--color-ink)]">{tramo.destination.code}</div>
-                <div className="mt-1 text-sm font-medium text-muted-foreground">{tramo.destination.city}</div>
+                <div className="font-display text-5xl md:text-7xl font-extrabold text-[var(--color-ink)]">
+                  {tramo.destination.code}
+                </div>
+                <div className="mt-1 text-sm font-medium text-muted-foreground">
+                  {tramo.destination.city}
+                </div>
               </div>
             </div>
 
             <div className="mt-8 grid grid-cols-2 gap-4 border-t border-dashed border-border pt-8 sm:grid-cols-4">
               <Meta label="Salida" value={fmtDate(tramo.departureAt)} isMono />
               <Meta label="Equipaje" value={flight.baggage} />
-              <Meta label="Asiento" value={asientoLabel(flight.asiento)} isMono />
+              <Meta label="Asiento" value={asientoLabel(asiento)} isMono />
               <Meta label="Ruta" value="Directo" />
             </div>
 
-            {flight.asiento.tipo === "aleatorio" && (
+            {flight.tramoAVender === "ambos" && flight.tramoRegreso && (
+              <div className="mt-8 border-t border-dashed border-border pt-8">
+                <div className="text-[11px] font-bold uppercase tracking-widest text-[var(--color-primary-token)]">
+                  Vuelta
+                </div>
+                <div className="mt-4 flex items-center justify-between gap-4">
+                  <div>
+                    <div className="font-display text-3xl md:text-4xl font-extrabold text-[var(--color-ink)]">
+                      {flight.tramoRegreso.origin.code}
+                    </div>
+                    <div className="mt-1 text-sm font-medium text-muted-foreground">
+                      {flight.tramoRegreso.origin.city}
+                    </div>
+                  </div>
+                  <div className="flex-1 px-4">
+                    <div className="flex items-center gap-2">
+                      <div className="h-px flex-1 border-t-2 border-dashed border-gray-300" />
+                      <Plane className="h-4 w-4 shrink-0 rotate-180 text-[var(--color-primary-token)]" />
+                      <div className="h-px flex-1 border-t-2 border-dashed border-gray-300" />
+                    </div>
+                    <div className="mt-2 text-center text-xs font-bold uppercase tracking-widest text-muted-foreground">
+                      {flight.tramoRegreso.durationMin} min · directo
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="font-display text-3xl md:text-4xl font-extrabold text-[var(--color-ink)]">
+                      {flight.tramoRegreso.destination.code}
+                    </div>
+                    <div className="mt-1 text-sm font-medium text-muted-foreground">
+                      {flight.tramoRegreso.destination.city}
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
+                  <Meta label="Salida" value={fmtDate(flight.tramoRegreso.departureAt)} isMono />
+                  <Meta label="Equipaje" value={flight.baggage} />
+                  <Meta
+                    label="Asiento"
+                    value={asientoLabel(
+                      flight.asientoRegreso ?? { tipo: "aleatorio", categoria: null, numero: null },
+                    )}
+                    isMono
+                  />
+                  <Meta label="Ruta" value="Directo" />
+                </div>
+              </div>
+            )}
+
+            {asiento.tipo === "aleatorio" && (
               <div className="mt-8 rounded-xl bg-gray-50 border border-gray-200 p-5 text-sm font-medium text-gray-600">
                 <span className="text-[var(--color-ink)] font-bold block mb-1">
                   Sobre el asiento:{" "}
@@ -165,7 +378,9 @@ function FlightDetail() {
 
             {flight.note && (
               <div className="mt-8 rounded-xl bg-gray-50 border border-gray-200 p-5 text-sm font-medium text-gray-600">
-                <span className="text-[var(--color-ink)] font-bold block mb-1">Nota del vendedor: </span>
+                <span className="text-[var(--color-ink)] font-bold block mb-1">
+                  Nota del vendedor:{" "}
+                </span>
                 {flight.note}
               </div>
             )}
@@ -182,7 +397,9 @@ function FlightDetail() {
               </Avatar>
               <div className="flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="font-bold text-lg text-[var(--color-ink)]">{flight.seller.name}</span>
+                  <span className="font-bold text-lg text-[var(--color-ink)]">
+                    {flight.seller.name}
+                  </span>
                   {flight.seller.verifiedId && (
                     <span className="inline-flex items-center gap-1 rounded-full bg-[var(--color-secondary-token)]/10 px-2.5 py-0.5 text-xs font-bold text-[var(--color-secondary-token)]">
                       <ShieldCheck className="h-3.5 w-3.5" /> ID validado
@@ -190,8 +407,8 @@ function FlightDetail() {
                   )}
                 </div>
                 <div className="text-sm font-medium text-muted-foreground mt-0.5">
-                  ★ {flight.seller.rating.toFixed(2)} · {flight.seller.reviews} traspasos ·
-                  miembro desde {flight.seller.memberSince}
+                  ★ {flight.seller.rating.toFixed(2)} · {flight.seller.reviews} traspasos · miembro
+                  desde {flight.seller.memberSince}
                 </div>
               </div>
             </div>
@@ -212,7 +429,9 @@ function FlightDetail() {
                 <div className="text-sm font-mono text-muted-foreground line-through decoration-gray-400">
                   {S(flight.originalPrice)}
                 </div>
-                <div className="font-mono text-5xl font-semibold text-[var(--color-primary-token)] mt-1">{S(flight.resalePrice)}</div>
+                <div className="font-mono text-5xl font-semibold text-[var(--color-primary-token)] mt-1">
+                  {S(flight.resalePrice)}
+                </div>
               </div>
               <div className="rounded-md bg-[var(--color-secondary-token)] px-3 py-1.5 text-sm font-bold text-white shadow-sm">
                 −{discountPct(flight)}% DTO
@@ -224,7 +443,8 @@ function FlightDetail() {
               </div>
             )}
             <div className="mt-4 text-xs font-medium text-muted-foreground">
-              Ahorro real de {S(flight.originalPrice - flight.resalePrice)} vs. precio actual en la aerolínea.
+              Ahorro real de {S(flight.originalPrice - flight.resalePrice)} vs. precio actual en la
+              aerolínea.
             </div>
 
             <div className="my-6 border-b border-dashed border-gray-200" />
@@ -232,7 +452,7 @@ function FlightDetail() {
             <div className="space-y-3 text-sm">
               <Row label="Precio del pasaje" value={S(flight.resalePrice)} />
               <Row label="Servicio Traspaso (5%)" value={S(comision)} />
-              <Row label="Asiento" value={asientoLabel(flight.asiento)} muted />
+              <Row label="Asiento" value={asientoLabel(asiento)} muted />
               <Row label="Verificación aerolínea" value="Incluido" muted />
             </div>
 
@@ -247,15 +467,17 @@ function FlightDetail() {
 
             <button
               onClick={() => {
+                if (step === 0) {
+                  setPayOpen(true);
+                  return;
+                }
                 setStep((s) => Math.min(3, s + 1));
                 toast.success(
-                  step === 0
-                    ? "Pago retenido en escrow"
-                    : step === 1
-                      ? "Vendedor notificado"
-                      : step === 2
-                        ? "Endoso confirmado"
-                        : "Pago liberado",
+                  step === 1
+                    ? "Vendedor notificado"
+                    : step === 2
+                      ? "Endoso confirmado"
+                      : "Pago liberado",
                 );
               }}
               className={`mt-6 flex w-full items-center justify-center gap-2 rounded-full px-6 py-4 text-sm font-bold shadow-sm transition-transform hover:scale-[1.02] ${
@@ -279,7 +501,178 @@ function FlightDetail() {
               Tu pago no va al vendedor hasta confirmar.
             </div>
           </div>
-          
+
+          <Dialog
+            open={payOpen}
+            onOpenChange={(o) => {
+              if (procesando) return;
+              setPayOpen(o);
+              if (!o) {
+                setMetodoPago(null);
+                if (pagoExitoso) {
+                  setPagoExitoso(false);
+                  setStep(1);
+                }
+              }
+            }}
+          >
+            <DialogContent className="max-w-md">
+              {pagoExitoso ? (
+                <div className="py-2 text-center">
+                  <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-[var(--color-secondary-token)] text-white">
+                    <CheckCircle2 className="h-8 w-8" />
+                  </div>
+                  <h2 className="mt-4 font-display text-2xl font-extrabold text-[var(--color-ink)]">
+                    ¡Pago retenido con éxito!
+                  </h2>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    Tu dinero está seguro en escrow. No se libera al vendedor hasta que confirmes
+                    que recibiste el traspaso.
+                  </p>
+
+                  <div className="mt-6 space-y-2 rounded-2xl border border-border bg-surface-2 p-4 text-left text-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Monto retenido</span>
+                      <span className="font-mono font-bold text-[var(--color-ink)]">
+                        {S(totalARetener)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Método de pago</span>
+                      <span className="font-bold text-[var(--color-ink)]">
+                        {METODOS_PAGO.find((m) => m.id === metodoPago)?.label}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="mt-6 text-left">
+                    <div className="mb-3 text-xs font-bold uppercase tracking-widest text-muted-foreground">
+                      Qué sigue
+                    </div>
+                    <ol className="space-y-3">
+                      <TimelineStep
+                        done
+                        title="1. Vendedor inicia trámite"
+                        desc="Normalmente responde dentro de las próximas 24 horas."
+                      />
+                      <TimelineStep
+                        title="2. Aerolínea confirma el endoso"
+                        desc="Verificamos que el boleto quedó a tu nombre."
+                      />
+                      <TimelineStep
+                        title="3. Confirmas y se libera el pago"
+                        desc="Tú confirmas que recibiste el boleto correctamente."
+                      />
+                    </ol>
+                  </div>
+
+                  <div className="mt-8 flex flex-col gap-2">
+                    <Link
+                      to="/dashboard"
+                      className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-[var(--color-primary-token)] px-6 py-3 text-sm font-bold text-white shadow-sm transition-transform hover:scale-[1.02]"
+                    >
+                      Ver mis operaciones <ArrowRight className="h-4 w-4" />
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPayOpen(false);
+                        setMetodoPago(null);
+                        setPagoExitoso(false);
+                        setStep(1);
+                      }}
+                      className="text-sm font-bold text-muted-foreground hover:text-[var(--color-ink)]"
+                    >
+                      Cerrar
+                    </button>
+                  </div>
+                </div>
+              ) : procesando ? (
+                <div className="flex flex-col items-center gap-4 py-10 text-center">
+                  <Loader2 className="h-10 w-10 animate-spin text-[var(--color-primary-token)]" />
+                  <div>
+                    <div className="font-display text-lg font-extrabold text-[var(--color-ink)]">
+                      Procesando pago…
+                    </div>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Estamos reteniendo tu dinero en escrow, no se libera al vendedor todavía.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <DialogHeader>
+                    <DialogTitle className="font-display text-2xl font-extrabold text-[var(--color-ink)]">
+                      Elige tu método de pago
+                    </DialogTitle>
+                  </DialogHeader>
+
+                  <div className="space-y-2">
+                    {METODOS_PAGO.map(({ id, label, desc, Icon }) => (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={() => setMetodoPago(id)}
+                        className={`flex w-full items-center gap-3 rounded-2xl border p-4 text-left transition-colors ${
+                          metodoPago === id
+                            ? "border-[var(--color-primary-token)] bg-[var(--color-primary-token)]/5"
+                            : "border-border hover:bg-gray-50"
+                        }`}
+                      >
+                        <div
+                          className={`grid h-10 w-10 shrink-0 place-items-center rounded-full ${
+                            metodoPago === id
+                              ? "bg-[var(--color-primary-token)] text-white"
+                              : "bg-surface-2 text-muted-foreground"
+                          }`}
+                        >
+                          <Icon className="h-5 w-5" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-bold text-[var(--color-ink)]">{label}</div>
+                          <div className="text-xs text-muted-foreground">{desc}</div>
+                        </div>
+                        <div
+                          className={`h-4 w-4 shrink-0 rounded-full border-2 ${
+                            metodoPago === id
+                              ? "border-[var(--color-primary-token)] bg-[var(--color-primary-token)]"
+                              : "border-gray-300"
+                          }`}
+                        />
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="flex items-baseline justify-between rounded-xl bg-[var(--surface-2)] p-4">
+                    <span className="text-sm font-bold text-[var(--color-ink)]">A retener hoy</span>
+                    <span className="font-mono text-xl font-bold text-[var(--color-ink)]">
+                      {S(totalARetener)}
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={!metodoPago}
+                    onClick={() => {
+                      setProcesando(true);
+                      window.setTimeout(() => {
+                        setProcesando(false);
+                        setPagoExitoso(true);
+                      }, 1500);
+                    }}
+                    className="flex w-full items-center justify-center gap-2 rounded-full bg-[var(--color-primary-token)] px-6 py-3.5 text-sm font-bold text-white shadow-sm transition-transform hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
+                  >
+                    <Lock className="h-4 w-4" /> Confirmar pago
+                  </button>
+                  <p className="text-center text-xs font-medium text-muted-foreground">
+                    Tu pago queda retenido en garantía — no se libera al vendedor hasta confirmar el
+                    endoso.
+                  </p>
+                </>
+              )}
+            </DialogContent>
+          </Dialog>
+
           {/* How escrow works (moved below checkout for mobile flow) */}
           <div className="mt-6 rounded-[2rem] border border-border bg-white p-6 shadow-sm">
             <div className="mb-5 text-xs font-bold uppercase tracking-widest text-[var(--color-ink)]">
@@ -320,7 +713,11 @@ function Meta({ label, value, isMono }: { label: string; value: string; isMono?:
       <div className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
         {label}
       </div>
-      <div className={`mt-1.5 text-sm font-medium text-[var(--color-ink)] ${isMono ? 'font-mono font-semibold' : ''}`}>{value}</div>
+      <div
+        className={`mt-1.5 text-sm font-medium text-[var(--color-ink)] ${isMono ? "font-mono font-semibold" : ""}`}
+      >
+        {value}
+      </div>
     </div>
   );
 }
@@ -329,20 +726,20 @@ function Row({ label, value, muted }: { label: string; value: string; muted?: bo
   return (
     <div className="flex items-center justify-between">
       <span className="font-medium text-gray-600">{label}</span>
-      <span className={muted ? "text-muted-foreground font-medium" : "font-mono font-bold text-[var(--color-ink)]"}>{value}</span>
+      <span
+        className={
+          muted
+            ? "text-muted-foreground font-medium"
+            : "font-mono font-bold text-[var(--color-ink)]"
+        }
+      >
+        {value}
+      </span>
     </div>
   );
 }
 
-function TimelineStep({
-  done,
-  title,
-  desc,
-}: {
-  done?: boolean;
-  title: string;
-  desc: string;
-}) {
+function TimelineStep({ done, title, desc }: { done?: boolean; title: string; desc: string }) {
   return (
     <li className="flex gap-3">
       {done ? (
@@ -351,7 +748,9 @@ function TimelineStep({
         <Circle className="mt-0.5 h-5 w-5 shrink-0 text-gray-300" />
       )}
       <div>
-        <div className={`font-bold ${done ? "text-[var(--color-ink)]" : "text-gray-400"}`}>{title}</div>
+        <div className={`font-bold ${done ? "text-[var(--color-ink)]" : "text-gray-400"}`}>
+          {title}
+        </div>
         <div className="text-xs font-medium text-muted-foreground mt-0.5">{desc}</div>
       </div>
     </li>
@@ -365,10 +764,12 @@ function ExpiredNotice({ route }: { id: string; route: string }) {
         <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-gray-100 text-gray-400">
           <Info className="h-8 w-8" />
         </div>
-        <h1 className="mt-6 font-display text-4xl font-extrabold text-[var(--color-ink)]">Oferta ya no disponible</h1>
+        <h1 className="mt-6 font-display text-4xl font-extrabold text-[var(--color-ink)]">
+          Oferta ya no disponible
+        </h1>
         <p className="mt-3 text-sm font-medium text-muted-foreground leading-relaxed">
-          Este pasaje ya no cumple los tiempos mínimos para completar el trámite de
-          endoso de forma segura. Traspaso nunca vende inventario que no puedas usar.
+          Este pasaje ya no cumple los tiempos mínimos para completar el trámite de endoso de forma
+          segura. Traspaso nunca vende inventario que no puedas usar.
         </p>
         <div className="mt-8 flex flex-wrap justify-center gap-3">
           <button

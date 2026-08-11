@@ -22,6 +22,13 @@ export function tramoVigente(f: Flight): FlightSegment {
   return f.tramoAVender === "regreso" && f.tramoRegreso ? f.tramoRegreso : f.tramoIda;
 }
 
+// El asiento del tramo vigente (ver tramoVigente). Cae a "aleatorio" si por alguna
+// razón el tramo vigente no tiene asiento registrado (no debería pasar en datos válidos).
+export function asientoVigente(f: Flight): Asiento {
+  const a = f.tramoAVender === "regreso" ? f.asientoRegreso : f.asientoIda;
+  return a ?? { tipo: "aleatorio", categoria: null, numero: null };
+}
+
 export function tramoAVenderLabel(t: TramoAVender): string {
   switch (t) {
     case "ida":

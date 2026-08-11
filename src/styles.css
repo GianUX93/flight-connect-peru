@@ -109,7 +109,7 @@
   }
   html,
   body {
-    background-color: var(--color-background);
+    background-color: var(--color-surface-2);
     color: var(--color-foreground);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
