@@ -1,6 +1,6 @@
 # Traspaso — Documento Maestro
 
-**Estado:** Prototipo funcional construido en Google Antigravity (sin backend real) · **Propósito:** negocio real + pieza de portafolio
+**Estado:** Prototipo funcional con **backend real** (Supabase: base de datos, autenticación, almacenamiento de archivos, tiempo real) · **Propósito:** negocio real + pieza de portafolio
 **Última actualización:** agosto 2026
 
 ---
@@ -20,25 +20,29 @@ Del otro lado, hay viajeros con planes flexibles que estarían dispuestos a paga
 - Un **comprador** encuentra ese vuelo con un descuento agresivo frente a la tarifa oficial.
 - La plataforma **retiene el pago en garantía (escrow)** hasta confirmar que el endoso se completó con éxito, y gestiona todo el proceso de forma transparente y segura para ambas partes.
 
-El prototipo ya cubre el recorrido completo: explorar y filtrar vuelos, publicar un pasaje (con autocompletado por IA a partir de un voucher), pagar y retener el dinero, gestionar el trámite de endoso con datos estructurados y chat interno, y liberar el pago — con alertas de búsqueda y viajes guardados como funciones de retención. El vendedor también puede ver el desempeño real de sus publicaciones activas (vistas, interesados, guardados) y retirarlas si cambia de planes, y cualquiera de las dos partes puede reportar un problema durante el trámite — lo que pausa el pago retenido de forma visible mientras se revisa el caso.
+El producto ya cubre el recorrido completo con cuentas reales: registro y login, explorar y filtrar vuelos, publicar un pasaje (con autocompletado por IA a partir de un voucher, y una **revisión manual** antes de salir al público), pagar y retener el dinero, gestionar el trámite de endoso con datos estructurados y **chat interno real**, y liberar el pago — solo después de que **el propio comprador confirme** que todo salió bien. Si la aerolínea rechaza el cambio de nombre a mitad de trámite, el dinero queda protegido y se puede reembolsar. Ambas partes reciben **notificaciones reales e instantáneas** de cada avance, y el vendedor ve el desempeño real de sus publicaciones activas (vistas, interesados, guardados) y puede retirarlas si cambia de planes.
 
 ## 3. Propuesta de valor
 
 | Para el vendedor | Para el comprador |
 |---|---|
 | Recupera dinero que hoy pierde por completo | Vuelos nacionales con descuento agresivo de último minuto |
-| Ve un desglose real de cuánto va a recibir, no una cifra opaca | Precio fijo garantizado — nunca cambia después de pagar |
-| Publica en minutos con autocompletado por IA desde su voucher | Reembolso 100% si el traspaso no se logra completar |
-| Guía clara paso a paso del trámite de endoso, sin exponer sus datos personales por WhatsApp | Puede guardar vuelos y crear alertas para rutas que aún no tienen oferta |
-| Ve vistas, interesados y guardados de cada publicación activa, y puede retirarla si cambia de planes | Si algo sale mal, puede reportarlo y el pago retenido queda protegido en pausa mientras se revisa |
+| Ve un desglose real de cuánto va a recibir, no una cifra opaca | Precio fijo garantizado, mostrado siempre como el total final a pagar — nunca cambia después de pagar |
+| Publica en minutos con autocompletado por IA desde su voucher | Reembolso protegido si la aerolínea rechaza el cambio de nombre a mitad de trámite |
+| Cada publicación pasa por una revisión antes de salir al público, lo que da más confianza al comprador | Puede guardar vuelos y crear alertas para rutas que aún no tienen oferta, y recibe una notificación real en cuanto aparece una |
+| Guía clara paso a paso del trámite de endoso, sin exponer sus datos personales por WhatsApp, con chat interno real y notificaciones al instante | El pago solo se libera al vendedor después de que el propio comprador confirma que el traspaso se completó correctamente |
+| Ve vistas, interesados y guardados reales de cada publicación activa, y puede retirarla si cambia de planes | Si algo sale mal, puede reportarlo y el pago retenido queda protegido en pausa mientras se revisa |
 
 ## 4. Diferenciadores frente a la competencia (Rename Travel)
 
-- **Desglose real vs. advertencia genérica**: Rename Travel advierte con un texto que "las aerolíneas cobran una tarifa", pero su cálculo de "monto neto a recibir" no la descuenta. Traspaso sí construye ese cálculo, con un estimado que el propio vendedor puede ingresar antes de publicar, y un monto verificado con evidencia una vez que el trámite es real.
-- **Protección de precio para ambos lados**: tope de precio de reventa (nunca igual o mayor al original, nunca por debajo del 10%) evita publicaciones abusivas o irrisorias — algo que la competencia no controla.
+- **Desglose real vs. advertencia genérica**: Rename Travel advierte con un texto que "las aerolíneas cobran una tarifa", pero su cálculo de "monto neto a recibir" no la descuenta. Traspaso sí construye ese cálculo, con un estimado que el propio vendedor puede ingresar antes de publicar, y un monto **verificado con evidencia real** (revisado por el equipo) una vez que el trámite es real.
+- **Confianza reforzada por revisión humana**: cada publicación nueva y cada cargo de aerolínea reportado pasa por una revisión antes de afectar al comprador o al pago final — no es solo un formulario que se acepta sin más.
+- **El comprador tiene la última palabra antes de liberar el pago**: el vendedor no puede cobrar hasta que el comprador confirme que recibió el traspaso correctamente.
+- **Protección de precio para ambos lados**: tope de precio de reventa (nunca igual o mayor al original, nunca por debajo del 10%) evita publicaciones abusivas o irrisorias.
 - **Fechas y vigencia**: nunca se muestra inventario vencido ni ofertas sin margen de tiempo real para completar el trámite.
 - **Búsqueda flexible**: presets de rango de fechas (semana, quince días, mes, fecha exacta) en vez de un buscador rígido tipo motor de vuelos, con filtrado en vivo sin fricción de "buscar" y esperar.
-- **Privacidad y confianza**: comunicación entre comprador y vendedor por chat interno de la plataforma, nunca exponiendo el número de teléfono real ni derivando a WhatsApp; los datos de identidad para el endoso se piden en un formulario estructurado, no por chat. Cuando la aerolínea exige además una foto del documento (confirmado con un caso real, donde hoy ese pedido ocurre por WhatsApp fuera de cualquier plataforma), el chat interno permite adjuntarla directamente — sin salir de Traspaso ni exponer el dato en un canal externo.
+- **Precio siempre honesto**: el número grande que ve el comprador es siempre el total real que va a pagar (incluyendo la comisión de servicio) — nunca un precio base que "sorprende" con cargos después.
+- **Privacidad y confianza**: comunicación entre comprador y vendedor por chat interno real de la plataforma (con notificaciones instantáneas), nunca exponiendo el número de teléfono real ni derivando a WhatsApp; los datos de identidad para el endoso se piden en un formulario estructurado, no por chat. Cuando la aerolínea exige además una foto del documento, el chat interno permite adjuntarla directamente — sin salir de Traspaso ni exponer el dato en un canal externo.
 
 ## 5. Usuario objetivo
 
@@ -55,16 +59,28 @@ Solo vuelos **nacionales** dentro de Perú, en las tres aerolíneas que operan r
 
 Comisión por servicio cobrada al vendedor en cada transacción completada, con un modelo pensado para variar **según la urgencia del vuelo**. Los porcentajes exactos todavía están **por definir**.
 
-El cargo que eventualmente cobre la aerolínea por el trámite de endoso lo asume el vendedor (se descuenta de su monto neto, con un piso de S/0 — nunca queda debiendo dinero) — el precio que paga el comprador es siempre fijo y no se ve afectado por este cargo.
+El cargo que eventualmente cobre la aerolínea por el trámite de endoso lo asume el vendedor (se descuenta de su monto neto, con un piso de S/0 — nunca queda debiendo dinero) — el precio que paga el comprador es siempre fijo y no se ve afectado por este cargo, y se le muestra siempre como el total final, sin desglosar la comisión por separado como si fuera un cargo aparte.
 
 ## 8. Base legal
 
 El derecho a transferir un pasaje nacional está respaldado por el Código de Protección y Defensa del Consumidor (Ley 29571) y, desde mayo de 2025, por la Ley N° 32325, que refuerza el carácter gratuito del endoso doméstico solicitado con 24 horas de anticipación. Existe cierta ambigüedad legal sobre si esa gratuidad cubre también los "gastos administrativos" del trámite — un punto que Traspaso maneja con transparencia en vez de asumir una respuesta única (ver PRD para el detalle).
 
-## 9. Identidad de marca
+## 9. Confianza y verificación — cómo se protege a ambas partes
+
+Este es uno de los pilares que más distingue a Traspaso de la competencia, y creció bastante en esta etapa:
+
+- **Publicaciones revisadas antes de salir al público**: ningún pasaje aparece en el marketplace apenas se publica — primero pasa por una revisión (hoy manual) que valida el comprobante subido por el vendedor. Si se rechaza, el vendedor recibe el motivo y puede corregir y reenviar.
+- **Cargo de aerolínea verificado, no solo declarado**: cuando el vendedor reporta cuánto le cobró realmente la aerolínea por el endoso, debe subir evidencia, y esa evidencia se revisa antes de descontarse del monto que recibe. Si el cargo reportado es inusualmente alto (más de la mitad del precio de venta), siempre pasa por revisión manual, sin excepción.
+- **El comprador confirma antes de que se libere el dinero**: el pago retenido no se libera al vendedor automáticamente al completar el trámite — el propio comprador tiene que confirmar que todo salió bien.
+- **Reportar un problema pausa el dinero, no lo pierde**: si algo sale mal en cualquier punto del trámite (por ejemplo, la aerolínea rechaza el cambio de nombre), cualquiera de las dos partes puede reportarlo. El pago queda protegido y en pausa, y si se confirma que el traspaso no se pudo completar, se reembolsa.
+- **Notificaciones instantáneas de cada paso**: ninguna de las dos partes tiene que estar revisando la plataforma constantemente para enterarse de un avance — las notificaciones llegan en tiempo real.
+
+## 10. Identidad de marca
 
 Dirección visual de consumo masivo, inspirada en la claridad de Airbnb y la cercanía de inDrive — colores vibrantes (coral, teal, amarillo), iconografía amigable, mobile-first. Explícitamente alejada de clichés de "startup de viajes" (sin íconos de avión de stock ni gradientes azul-cielo genéricos).
 
-## 10. Estado actual
+## 11. Estado actual
 
-Prototipo funcional con todos los flujos principales navegables de punta a punta (explorar, publicar, comprar, gestionar el trámite, liberar el pago), construido en React sobre Google Antigravity. Sin backend real todavía: el estado vive en memoria del navegador y se pierde al recargar la página; el autocompletado por IA, la pasarela de pago y la autenticación son simulaciones visuales completas, no integraciones reales. El PRD detalla el alcance técnico exacto y lo que falta para llevarlo a producción.
+Prototipo funcional con **backend real sobre Supabase**: cuentas de usuario reales (registro/login), base de datos persistente (ya no se pierde nada al recargar la página), archivos e imágenes almacenados de verdad (comprobantes de vuelo, evidencia de cargos de aerolínea, adjuntos de chat), y notificaciones/chat en tiempo real. Todos los flujos principales son navegables de punta a punta con datos reales: explorar, publicar (con revisión), comprar, gestionar el trámite completo, liberar el pago con confirmación del comprador, y — si algo sale mal — reportar y reembolsar.
+
+Lo que todavía es una simulación visual, a propósito, en esta etapa: la pasarela de pago (no se procesa dinero real todavía) y el autocompletado de datos por IA al publicar (usa una animación de carga con datos de ejemplo, en vez de un modelo de visión real). El PRD detalla el alcance técnico exacto, todas las reglas de negocio, y lo que falta para llevarlo a producción.
