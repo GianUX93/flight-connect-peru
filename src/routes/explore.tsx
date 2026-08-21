@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState, useEffect, useRef } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   Bell,
   BellRing,
@@ -15,13 +16,14 @@ import { z } from "zod";
 import gsap from "gsap";
 
 import {
-  flights,
   airportsList,
   airlines,
   currentUser,
   type AsientoCategoria,
   type Flight,
 } from "@/lib/mock-data";
+import { useAuth } from "@/lib/auth-context";
+import { getActiveFlights } from "@/lib/services/flights";
 import {
   activeFlights,
   lastCallFlights,
@@ -41,7 +43,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Slider } from "@/components/ui/slider";
-import { useAlerts } from "@/lib/alerts-context";
+import { createRouteAlert } from "@/lib/services/route-alerts";
 import { toast } from "sonner";
 
 type RangoPreset = "semana" | "quince" | "mes" | "fecha";
@@ -112,6 +114,7 @@ export const Route = createFileRoute("/explore")({
 function Explore() {
   const search = Route.useSearch();
   const navigate = useNavigate({ from: "/explore" });
+  const { user } = useAuth();
   const rango = search.rango ?? "mes";
 
   const [airlineFilter, setAirlineFilter] = useState<string>("all");
@@ -119,10 +122,28 @@ function Explore() {
   const [priceRange, setPriceRange] = useState<[number, number]>([50, 500]);
   const [sortBy, setSortBy] = useState<SortBy>("relevancia");
   const [alertSaved, setAlertSaved] = useState(false);
-  const { addAlerta } = useAlerts();
+  const [creandoAlerta, setCreandoAlerta] = useState(false);
 
-  const active = useMemo(() => activeFlights(flights), []);
-  const lastCall = useMemo(() => lastCallFlights(flights), []);
+  const { data: fetchedFlights = [], isLoading } = useQuery({
+    queryKey: ["flights", "active"],
+    queryFn: getActiveFlights,
+  });
+
+  const active = useMemo(() => activeFlights(fetchedFlights), [fetchedFlights]);
+  const lastCall = useMemo(() => lastCallFlights(fetchedFlights), [fetchedFlights]);
+
+  // El tope del slider no puede quedar fijo en 500 — un vuelo real puede
+  // publicarse por más, y quedaría invisible en el marketplace sin que nadie
+  // lo note. Se calcula sobre lo que realmente hay a la venta ahora mismo.
+  const precioMaxDisponible = useMemo(
+    () => Math.max(500, ...active.map((f) => Math.ceil(f.resalePrice / 10) * 10)),
+    [active],
+  );
+  useEffect(() => {
+    setPriceRange(([lo, hi]) =>
+      hi === 500 && precioMaxDisponible > 500 ? [lo, precioMaxDisponible] : [lo, hi],
+    );
+  }, [precioMaxDisponible]);
 
   const rangoLimite = rango === "fecha" ? null : Date.now() + RANGO_DIAS[rango] * 86400_000;
   const selectedDate = rango === "fecha" && search.date ? new Date(search.date) : null;
@@ -153,7 +174,7 @@ function Explore() {
   const filtrosActivos =
     (airlineFilter !== "all" ? 1 : 0) +
     (seatFilter !== "all" ? 1 : 0) +
-    (priceRange[0] !== 50 || priceRange[1] !== 500 ? 1 : 0);
+    (priceRange[0] !== 50 || priceRange[1] !== precioMaxDisponible ? 1 : 0);
 
   const ciudad = (code?: string) =>
     code ? (airportsList.find((a) => a.code === code)?.city ?? code) : null;
@@ -193,6 +214,11 @@ function Explore() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 md:py-12" ref={gridRef}>
+      {isLoading && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-white/50 backdrop-blur-sm">
+          <div className="h-10 w-10 animate-spin rounded-full border-4 border-[var(--color-primary-token)] border-t-transparent"></div>
+        </div>
+      )}
       <div
         className="relative overflow-hidden rounded-[2rem] p-6 shadow-sm md:p-10"
         style={{
@@ -385,7 +411,7 @@ function Explore() {
                   </div>
                   <Slider
                     min={50}
-                    max={500}
+                    max={precioMaxDisponible}
                     step={10}
                     value={priceRange}
                     onValueChange={(v) => setPriceRange([v[0], v[1]])}
@@ -398,7 +424,7 @@ function Explore() {
                     onClick={() => {
                       setAirlineFilter("all");
                       setSeatFilter("all");
-                      setPriceRange([50, 500]);
+                      setPriceRange([50, precioMaxDisponible]);
                     }}
                     className="text-xs font-bold text-[var(--color-primary-token)] hover:underline"
                   >
@@ -482,64 +508,69 @@ function Explore() {
           {search.from && search.to && (
             <>
               {alertSaved ? (
-                <div className="relative mx-auto mt-6 max-w-sm overflow-hidden rounded-[1.5rem] border border-[var(--color-secondary-token)]/25 bg-gradient-to-br from-[var(--color-secondary-token)]/8 to-transparent text-left shadow-sm">
-                  <span className="absolute right-4 top-4 inline-block rounded-full bg-white px-2.5 py-1 text-xs font-bold text-[var(--color-ink)] shadow-sm">
-                    {rutaResumen}
-                  </span>
+                <div className="mx-auto mt-6 max-w-md overflow-hidden rounded-[1.5rem] border border-[var(--color-secondary-token)]/25 bg-gradient-to-br from-[var(--color-secondary-token)]/8 to-transparent text-left shadow-sm">
                   <div className="flex items-start gap-3 p-5">
                     <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--color-secondary-token)]/15">
                       <CheckCircle2 className="h-5 w-5 text-[var(--color-secondary-token)]" />
                     </div>
-                    <div className="min-w-0 pr-16">
-                      <div className="font-display text-base font-extrabold text-[var(--color-ink)]">
-                        Alerta activada
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="font-display text-base font-extrabold text-[var(--color-ink)]">
+                          Alerta activada
+                        </div>
+                        <span className="shrink-0 rounded-full bg-white px-2.5 py-1 text-xs font-bold text-[var(--color-ink)] shadow-sm">
+                          {rutaResumen}
+                        </span>
                       </div>
-                      <div className="mt-2.5 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                      <div className="mt-2.5 flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-muted-foreground">
                         <Mail className="h-3.5 w-3.5 shrink-0" />
-                        Te escribiremos a <span className="font-bold">{currentUser.email}</span>
+                        Te avisaremos por notificación cuando aparezca
                       </div>
                     </div>
                   </div>
                 </div>
               ) : (
                 <button
-                  onClick={() => {
-                    setAlertSaved(true);
-                    addAlerta({
-                      tipo: "busqueda",
-                      titulo: "Alerta de búsqueda creada",
-                      detalle: `Te avisaremos cuando aparezca un pasaje para ${rutaResumen} ${cuandoResumen}.`,
-                      href: "/explore",
-                    });
-                    toast.success("Alerta creada", {
-                      description: `Te avisaremos por correo cuando aparezca un pasaje para ${rutaResumen} ${cuandoResumen}.`,
-                    });
-
-                    // Simulación de demo: al ratito "llega" un pasaje que calza con la alerta.
-                    const candidato =
-                      active.find(
-                        (f) =>
-                          (!search.from || tramoVigente(f).origin.code === search.from) &&
-                          (!search.to || tramoVigente(f).destination.code === search.to),
-                      ) ?? active[0];
-                    window.setTimeout(() => {
-                      addAlerta({
-                        tipo: "match",
-                        titulo: "¡Apareció un pasaje!",
-                        detalle: candidato
-                          ? `${tramoVigente(candidato).origin.city} → ${tramoVigente(candidato).destination.city}, publicado por ${candidato.seller.name} a ${S(candidato.resalePrice)}.`
-                          : `Encontramos un pasaje para ${rutaResumen} ${cuandoResumen}.`,
-                        href: candidato ? `/flight/${candidato.id}` : "/explore",
-                      });
-                      toast.success("¡Apareció un pasaje!", {
-                        description: candidato
-                          ? `${tramoVigente(candidato).origin.city} → ${tramoVigente(candidato).destination.city} a ${S(candidato.resalePrice)}`
-                          : "Revisa la campanita de notificaciones.",
-                        icon: <BellRing className="h-4 w-4" />,
-                      });
-                    }, 4000);
+                  disabled={creandoAlerta}
+                  onClick={async () => {
+                    if (!user || user.id.startsWith("sim-")) {
+                      toast.error("Inicia sesión para activar alertas de búsqueda.");
+                      return;
+                    }
+                    setCreandoAlerta(true);
+                    try {
+                      await createRouteAlert(user.id, search.from!, search.to!);
+                      setAlertSaved(true);
+                      toast.custom((toastId) => (
+                        <div className="flex w-full gap-3 rounded-lg bg-white p-4 shadow-lg border border-border">
+                          <BellRing className="h-5 w-5 shrink-0 text-[var(--color-secondary-token)]" />
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-semibold text-[var(--color-ink)]">
+                              Alerta creada
+                            </div>
+                            <p className="mt-0.5 text-sm text-muted-foreground">
+                              Te avisaremos cuando aparezca un pasaje para {rutaResumen}.
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigate({ to: "/profile", search: { tab: "preferencias" } });
+                                toast.dismiss(toastId);
+                              }}
+                              className="mt-1.5 text-sm font-bold text-[var(--color-primary-token)] hover:underline"
+                            >
+                              Ver alertas
+                            </button>
+                          </div>
+                        </div>
+                      ));
+                    } catch {
+                      toast.error("No se pudo crear la alerta.");
+                    } finally {
+                      setCreandoAlerta(false);
+                    }
                   }}
-                  className="mt-6 inline-flex items-center gap-2 rounded-full bg-[var(--color-secondary-token)] px-6 py-3 text-sm font-bold text-white transition-transform hover:scale-105"
+                  className="mt-6 inline-flex items-center gap-2 rounded-full bg-[var(--color-secondary-token)] px-6 py-3 text-sm font-bold text-white transition-transform hover:scale-105 disabled:opacity-50"
                 >
                   <Bell className="h-4 w-4" /> Avísame cuando aparezcan pasajes
                 </button>
@@ -563,7 +594,7 @@ function Explore() {
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {results.map((f) => (
               <div key={f.id} className="flight-anim h-full">
-                <FlightCard flight={f} />
+                <FlightCard flight={f} isOwnListing={user?.id === f.seller.id} />
               </div>
             ))}
           </div>
@@ -595,7 +626,11 @@ function Explore() {
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {lastCall.map((f) => (
               <div key={f.id} className="flight-anim h-full">
-                <FlightCard flight={f} variant="last_call" />
+                <FlightCard
+                  flight={f}
+                  variant="last_call"
+                  isOwnListing={user?.id === f.seller.id}
+                />
               </div>
             ))}
           </div>

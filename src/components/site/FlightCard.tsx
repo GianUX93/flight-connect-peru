@@ -11,6 +11,7 @@ import {
   tramoVigente,
   tramoAVenderLabel,
   asientoVigente,
+  totalAPagar,
 } from "@/lib/flight-utils";
 import { Countdown } from "./Countdown";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -23,9 +24,11 @@ import { useSaved } from "@/lib/saved-context";
 export function FlightCard({
   flight,
   variant = "active",
+  isOwnListing = false,
 }: {
   flight: Flight;
   variant?: "active" | "last_call";
+  isOwnListing?: boolean;
 }) {
   const { isSaved, toggleSaved } = useSaved();
   const status = computeStatus(flight);
@@ -77,17 +80,27 @@ export function FlightCard({
           <span className="truncate">{flight.airline}</span>
           <span className="font-mono shrink-0">{flight.flightNumber}</span>
           <div className="ml-auto flex shrink-0 items-center gap-2">
-            {asiento.tipo === "seleccionado" && asiento.categoria === "ventana" && (
-              <span className="shrink-0 rounded-full bg-[var(--color-secondary-token)]/10 px-2 py-0.5 text-[10px] font-bold normal-case tracking-normal text-[var(--color-secondary-token)]">
-                🪟 Ventana confirmada
-              </span>
-            )}
-            {asiento.tipo === "aleatorio" && (
+            {isOwnListing ? (
               <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-bold normal-case tracking-normal text-gray-500">
-                Asiento aleatorio
+                Tu publicación
               </span>
+            ) : (
+              <>
+                {asiento.tipo === "seleccionado" && asiento.categoria === "ventana" && (
+                  <span className="shrink-0 rounded-full bg-[var(--color-secondary-token)]/10 px-2 py-0.5 text-[10px] font-bold normal-case tracking-normal text-[var(--color-secondary-token)]">
+                    🪟 Ventana confirmada
+                  </span>
+                )}
+                {asiento.tipo === "aleatorio" && (
+                  <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-bold normal-case tracking-normal text-gray-500">
+                    Asiento aleatorio
+                  </span>
+                )}
+              </>
             )}
-            {!isWarn && <SaveHeartButton saved={saved} onToggle={() => toggleSaved(flight.id)} />}
+            {!isWarn && !isOwnListing && (
+              <SaveHeartButton saved={saved} onToggle={() => toggleSaved(flight.id)} />
+            )}
           </div>
         </div>
         <div className="mt-4 flex items-baseline gap-3">
@@ -121,7 +134,7 @@ export function FlightCard({
               {S(flight.originalPrice)}
             </span>
             <span className="font-mono text-2xl font-semibold leading-none text-[var(--color-primary-token)]">
-              {S(flight.resalePrice)}
+              {S(totalAPagar(flight))}
             </span>
           </div>
           <div className="inline-block shrink-0 rounded-md bg-[var(--color-secondary-token)] px-2 py-1 text-[11px] font-bold text-white shadow-sm">

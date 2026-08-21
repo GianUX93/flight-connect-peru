@@ -1,7 +1,10 @@
-import { createContext, useContext, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { CheckCircle2 } from "lucide-react";
+import { useAuth } from "./auth-context";
+import { getMySavedFlightIds, saveFlight, unsaveFlight } from "./services/saved-flights";
+import { incrementFlightCounter } from "./services/flights";
 
 type SavedContextValue = {
   savedIds: string[];
@@ -13,8 +16,20 @@ type SavedContextValue = {
 const SavedContext = createContext<SavedContextValue | null>(null);
 
 export function SavedProvider({ children }: { children: ReactNode }) {
-  const [savedIds, setSavedIds] = useState<string[]>(["f-002", "f-006"]);
+  const { user } = useAuth();
+  const isRealUser = !!user && !user.id.startsWith("sim-");
+  const [savedIds, setSavedIds] = useState<string[]>([]);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!isRealUser) {
+      setSavedIds([]);
+      return;
+    }
+    getMySavedFlightIds(user!.id)
+      .then(setSavedIds)
+      .catch(() => {});
+  }, [isRealUser, user]);
 
   function isSaved(flightId: string) {
     return savedIds.includes(flightId);
@@ -25,6 +40,19 @@ export function SavedProvider({ children }: { children: ReactNode }) {
     setSavedIds((prev) =>
       yaGuardado ? prev.filter((id) => id !== flightId) : [...prev, flightId],
     );
+
+    if (isRealUser) {
+      const op = yaGuardado ? unsaveFlight(user!.id, flightId) : saveFlight(user!.id, flightId);
+      op.then(() => {
+        incrementFlightCounter(flightId, "saved_count", yaGuardado ? -1 : 1);
+      }).catch(() => {
+        // Revierte el optimistic update si falló en el servidor.
+        setSavedIds((prev) =>
+          yaGuardado ? [...prev, flightId] : prev.filter((id) => id !== flightId),
+        );
+        toast.error("No se pudo actualizar tus guardados.");
+      });
+    }
 
     if (yaGuardado) {
       toast("Quitado de guardados");
@@ -57,6 +85,15 @@ export function SavedProvider({ children }: { children: ReactNode }) {
 
   function removeSaved(flightId: string) {
     setSavedIds((prev) => prev.filter((id) => id !== flightId));
+    if (isRealUser) {
+      unsaveFlight(user!.id, flightId)
+        .then(() => {
+          incrementFlightCounter(flightId, "saved_count", -1);
+        })
+        .catch(() => {
+          toast.error("No se pudo quitar de guardados.");
+        });
+    }
   }
 
   return (

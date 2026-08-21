@@ -1,5 +1,6 @@
-import { createFileRoute, Link, notFound } from "@tanstack/react-router";
-import { useState } from "react";
+import { createFileRoute, Link, notFound, useNavigate } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import { z } from "zod";
 import {
   ShieldCheck,
@@ -20,17 +21,21 @@ import {
   Copy,
   Facebook,
   Instagram,
+  Eye,
 } from "lucide-react";
 
-import { flights } from "@/lib/mock-data";
 import { useSaved } from "@/lib/saved-context";
+import { useAuth, PENDING_PURCHASE_KEY } from "@/lib/auth-context";
+import { usePayment } from "@/lib/payment-context";
+import { getFlightById, incrementFlightCounter } from "@/lib/services/flights";
+import { createTransaction, getTransactionForFlight } from "@/lib/services/transactions";
 import {
   computeStatus,
-  discountPct,
   fmtDate,
   S,
   airlineLogo,
   comisionPlataforma,
+  discountPct,
   tramoVigente,
   tramoAVenderLabel,
   asientoLabel,
@@ -78,8 +83,8 @@ const searchSchema = z.object({
 
 export const Route = createFileRoute("/flight/$id")({
   validateSearch: (s) => searchSchema.parse(s),
-  head: ({ params }) => {
-    const f = flights.find((x) => x.id === params.id);
+  head: ({ loaderData }) => {
+    const f = loaderData?.flight;
     if (!f) {
       return {
         meta: [{ title: "Vuelo no disponible — Traspaso" }, { name: "robots", content: "noindex" }],
@@ -98,10 +103,13 @@ export const Route = createFileRoute("/flight/$id")({
       ],
     };
   },
-  loader: ({ params }) => {
-    const f = flights.find((x) => x.id === params.id);
-    if (!f) throw notFound();
-    return { flight: f };
+  loader: async ({ params }) => {
+    try {
+      const f = await getFlightById(params.id);
+      return { flight: f };
+    } catch (e) {
+      throw notFound();
+    }
   },
   component: FlightDetail,
 });
@@ -110,12 +118,48 @@ function FlightDetail() {
   const { flight } = Route.useLoaderData();
   const search = Route.useSearch();
   const { isSaved, toggleSaved } = useSaved();
+  const { user } = useAuth();
+  const { metodoPago: metodoPagoGuardado } = usePayment();
+  const navigate = useNavigate();
   const status = computeStatus(flight);
+  const esPropiaOferta = !!user && user.id === flight.seller.id;
+  // dbStatus solo existe en vuelos reales de Supabase (mock no lo tiene) — si ya
+  // no está "active"/"last_call" (vendido, retirado), no se puede volver a comprar.
+  const noDisponibleParaComprar =
+    !!(flight as { dbStatus?: string }).dbStatus &&
+    !["active", "last_call"].includes((flight as { dbStatus?: string }).dbStatus!);
   const [step, setStep] = useState(0);
   const [payOpen, setPayOpen] = useState(false);
-  const [metodoPago, setMetodoPago] = useState<MetodoPago | null>(null);
+
+  // Transacción real de este vuelo, solo si quien mira es parte de ella (comprador
+  // o vendedor) — RLS ya filtra esto, así que si no aplica simplemente llega null.
+  const { data: misTransaccion } = useQuery({
+    queryKey: ["transactionForFlight", flight.id, user?.id],
+    queryFn: () => getTransactionForFlight(flight.id, user!.id),
+    enabled: !!user && !!(flight as { dbStatus?: string }).dbStatus,
+  });
+
+  // Si vuelve de iniciar sesión y este era el vuelo que quería pagar, retoma la
+  // compra automáticamente en vez de hacerlo buscar el botón de nuevo.
+  useEffect(() => {
+    if (!user || esPropiaOferta) return;
+    if (localStorage.getItem(PENDING_PURCHASE_KEY) === flight.id) {
+      localStorage.removeItem(PENDING_PURCHASE_KEY);
+      setPayOpen(true);
+    }
+  }, [user, esPropiaOferta, flight.id]);
+
+  // Cuenta como vista real solo si no es el propio vendedor viendo su publicación.
+  useEffect(() => {
+    if (esPropiaOferta) return;
+    incrementFlightCounter(flight.id, "views", 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flight.id]);
+
+  const [metodoPago, setMetodoPago] = useState<MetodoPago | null>(metodoPagoGuardado?.tipo ?? null);
   const [procesando, setProcesando] = useState(false);
   const [pagoExitoso, setPagoExitoso] = useState(false);
+  const [nuevaTransaccionId, setNuevaTransaccionId] = useState<string | null>(null);
   const tramo = tramoVigente(flight);
   const asiento = asientoVigente(flight);
   const comision = comisionPlataforma(flight.resalePrice);
@@ -215,19 +259,24 @@ function FlightDetail() {
               </div>
             </PopoverContent>
           </Popover>
-          <button
-            type="button"
-            onClick={() => toggleSaved(flight.id)}
-            aria-pressed={saved}
-            className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-bold shadow-sm transition-colors ${
-              saved
-                ? "border-[var(--color-primary-token)]/30 bg-[var(--color-primary-token)]/10 text-[var(--color-primary-token)]"
-                : "border-border bg-white text-[var(--color-ink)] hover:bg-gray-50"
-            }`}
-          >
-            <Heart className={`h-4 w-4 ${saved ? "fill-[var(--color-primary-token)]" : ""}`} />
-            {saved ? "Guardado" : "Guardar"}
-          </button>
+          {!esPropiaOferta && !noDisponibleParaComprar && (
+            <button
+              type="button"
+              onClick={() => {
+                toggleSaved(flight.id);
+                incrementFlightCounter(flight.id, "saved_count", saved ? -1 : 1);
+              }}
+              aria-pressed={saved}
+              className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-bold shadow-sm transition-colors ${
+                saved
+                  ? "border-[var(--color-primary-token)]/30 bg-[var(--color-primary-token)]/10 text-[var(--color-primary-token)]"
+                  : "border-border bg-white text-[var(--color-ink)] hover:bg-gray-50"
+              }`}
+            >
+              <Heart className={`h-4 w-4 ${saved ? "fill-[var(--color-primary-token)]" : ""}`} />
+              {saved ? "Guardado" : "Guardar"}
+            </button>
+          )}
         </div>
       </div>
 
@@ -264,10 +313,17 @@ function FlightDetail() {
               />
               {flight.airline} · <span className="font-mono">{flight.flightNumber}</span>
               <div className="ml-auto flex flex-wrap items-center gap-2">
-                {asiento.tipo === "seleccionado" && asiento.categoria === "ventana" && (
-                  <span className="rounded-full bg-[var(--color-secondary-token)]/10 px-2.5 py-1 text-[10px] font-bold normal-case tracking-normal text-[var(--color-secondary-token)]">
-                    🪟 Ventana confirmada
+                {esPropiaOferta ? (
+                  <span className="rounded-full bg-gray-100 px-2.5 py-1 text-[10px] font-bold normal-case tracking-normal text-gray-500">
+                    Tu publicación
                   </span>
+                ) : (
+                  asiento.tipo === "seleccionado" &&
+                  asiento.categoria === "ventana" && (
+                    <span className="rounded-full bg-[var(--color-secondary-token)]/10 px-2.5 py-1 text-[10px] font-bold normal-case tracking-normal text-[var(--color-secondary-token)]">
+                      🪟 Ventana confirmada
+                    </span>
+                  )
                 )}
                 {flight.tipoBoleto === "ida_y_vuelta" && (
                   <span className="rounded-full bg-gray-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-gray-500">
@@ -384,6 +440,37 @@ function FlightDetail() {
                 {flight.note}
               </div>
             )}
+
+            {esPropiaOferta && (
+              <div className="mt-8 grid grid-cols-3 gap-4 border-t border-dashed border-gray-200 pt-8">
+                <div>
+                  <div className="flex items-center gap-1 font-mono text-2xl font-bold text-[var(--color-ink)]">
+                    <Eye className="h-4 w-4 text-muted-foreground" />
+                    {flight.views}
+                  </div>
+                  <div className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
+                    Vistas
+                  </div>
+                </div>
+                <div>
+                  <div className="font-mono text-2xl font-bold text-[var(--color-ink)]">
+                    {flight.interested}
+                  </div>
+                  <div className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
+                    Interesados
+                  </div>
+                </div>
+                <div>
+                  <div className="flex items-center gap-1 font-mono text-2xl font-bold text-[var(--color-ink)]">
+                    <Heart className="h-4 w-4 text-[var(--color-primary-token)]" />
+                    {flight.savedCount}
+                  </div>
+                  <div className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
+                    Guardados
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Seller */}
@@ -430,7 +517,10 @@ function FlightDetail() {
                   {S(flight.originalPrice)}
                 </div>
                 <div className="font-mono text-5xl font-semibold text-[var(--color-primary-token)] mt-1">
-                  {S(flight.resalePrice)}
+                  {S(totalARetener)}
+                </div>
+                <div className="mt-1 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
+                  Total a pagar hoy
                 </div>
               </div>
               <div className="rounded-md bg-[var(--color-secondary-token)] px-3 py-1.5 text-sm font-bold text-white shadow-sm">
@@ -443,7 +533,7 @@ function FlightDetail() {
               </div>
             )}
             <div className="mt-4 text-xs font-medium text-muted-foreground">
-              Ahorro real de {S(flight.originalPrice - flight.resalePrice)} vs. precio actual en la
+              Ahorro real de {S(flight.originalPrice - totalARetener)} vs. precio actual en la
               aerolínea.
             </div>
 
@@ -456,50 +546,53 @@ function FlightDetail() {
               <Row label="Verificación aerolínea" value="Incluido" muted />
             </div>
 
-            <div className="my-6 border-b border-dashed border-gray-200" />
+            {esPropiaOferta ? null : noDisponibleParaComprar ? null : (
+              <>
+                <button
+                  onClick={() => {
+                    if (step === 0) {
+                      if (!user) {
+                        localStorage.setItem(PENDING_PURCHASE_KEY, flight.id);
+                        navigate({ to: "/login" });
+                        return;
+                      }
+                      setPayOpen(true);
+                      incrementFlightCounter(flight.id, "interested_count", 1);
+                      return;
+                    }
+                    setStep((s) => Math.min(3, s + 1));
+                    toast.success(
+                      step === 1
+                        ? "Vendedor notificado"
+                        : step === 2
+                          ? "Endoso confirmado"
+                          : "Pago liberado",
+                    );
+                  }}
+                  className={`mt-6 flex w-full items-center justify-center gap-2 rounded-full px-6 py-4 text-sm font-bold shadow-sm transition-transform hover:scale-[1.02] ${
+                    isWarn
+                      ? "bg-[var(--color-ink)] text-white hover:bg-black"
+                      : "bg-[var(--color-primary-token)] text-white hover:bg-[var(--color-primary-token)]/90"
+                  }`}
+                >
+                  {step === 0
+                    ? user
+                      ? "Pagar y retener dinero"
+                      : "Ingresar para pagar"
+                    : step === 1
+                      ? "Confirmar endoso iniciado"
+                      : step === 2
+                        ? "Confirmar boleto recibido"
+                        : "Traspaso exitoso ✓"}
+                  <ArrowRight className="h-4 w-4" />
+                </button>
 
-            <div className="flex items-baseline justify-between bg-[var(--surface-2)] p-4 rounded-xl">
-              <div className="text-sm font-bold text-[var(--color-ink)]">A retener hoy</div>
-              <div className="font-mono text-2xl font-bold text-[var(--color-ink)]">
-                {S(totalARetener)}
-              </div>
-            </div>
-
-            <button
-              onClick={() => {
-                if (step === 0) {
-                  setPayOpen(true);
-                  return;
-                }
-                setStep((s) => Math.min(3, s + 1));
-                toast.success(
-                  step === 1
-                    ? "Vendedor notificado"
-                    : step === 2
-                      ? "Endoso confirmado"
-                      : "Pago liberado",
-                );
-              }}
-              className={`mt-6 flex w-full items-center justify-center gap-2 rounded-full px-6 py-4 text-sm font-bold shadow-sm transition-transform hover:scale-[1.02] ${
-                isWarn
-                  ? "bg-[var(--color-ink)] text-white hover:bg-black"
-                  : "bg-[var(--color-primary-token)] text-white hover:bg-[var(--color-primary-token)]/90"
-              }`}
-            >
-              {step === 0
-                ? "Pagar y retener dinero"
-                : step === 1
-                  ? "Confirmar endoso iniciado"
-                  : step === 2
-                    ? "Confirmar boleto recibido"
-                    : "Traspaso exitoso ✓"}
-              <ArrowRight className="h-4 w-4" />
-            </button>
-
-            <div className="mt-5 flex items-center justify-center gap-2 text-xs font-medium text-muted-foreground bg-gray-50 p-3 rounded-xl border border-gray-100">
-              <Lock className="h-4 w-4 text-[var(--color-secondary-token)]" />
-              Tu pago no va al vendedor hasta confirmar.
-            </div>
+                <div className="mt-5 flex items-center justify-center gap-2 text-xs font-medium text-muted-foreground bg-gray-50 p-3 rounded-xl border border-gray-100">
+                  <Lock className="h-4 w-4 text-[var(--color-secondary-token)]" />
+                  Tu pago no va al vendedor hasta confirmar.
+                </div>
+              </>
+            )}
           </div>
 
           <Dialog
@@ -508,7 +601,7 @@ function FlightDetail() {
               if (procesando) return;
               setPayOpen(o);
               if (!o) {
-                setMetodoPago(null);
+                setMetodoPago(metodoPagoGuardado?.tipo ?? null);
                 if (pagoExitoso) {
                   setPagoExitoso(false);
                   setStep(1);
@@ -569,15 +662,16 @@ function FlightDetail() {
                   <div className="mt-8 flex flex-col gap-2">
                     <Link
                       to="/dashboard"
+                      search={nuevaTransaccionId ? { tx: nuevaTransaccionId } : undefined}
                       className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-[var(--color-primary-token)] px-6 py-3 text-sm font-bold text-white shadow-sm transition-transform hover:scale-[1.02]"
                     >
-                      Ver mis operaciones <ArrowRight className="h-4 w-4" />
+                      Comenzar trámite <ArrowRight className="h-4 w-4" />
                     </Link>
                     <button
                       type="button"
                       onClick={() => {
                         setPayOpen(false);
-                        setMetodoPago(null);
+                        setMetodoPago(metodoPagoGuardado?.tipo ?? null);
                         setPagoExitoso(false);
                         setStep(1);
                       }}
@@ -644,7 +738,9 @@ function FlightDetail() {
                   </div>
 
                   <div className="flex items-baseline justify-between rounded-xl bg-[var(--surface-2)] p-4">
-                    <span className="text-sm font-bold text-[var(--color-ink)]">A retener hoy</span>
+                    <span className="text-sm font-bold text-[var(--color-ink)]">
+                      Total a pagar hoy
+                    </span>
                     <span className="font-mono text-xl font-bold text-[var(--color-ink)]">
                       {S(totalARetener)}
                     </span>
@@ -653,12 +749,34 @@ function FlightDetail() {
                   <button
                     type="button"
                     disabled={!metodoPago}
-                    onClick={() => {
+                    onClick={async () => {
+                      if (!user) return;
                       setProcesando(true);
-                      window.setTimeout(() => {
+                      try {
+                        const nuevaTransaccion = await createTransaction({
+                          flight_id: flight.id,
+                          buyer_id: user.id,
+                          seller_id: flight.seller.id,
+                          agreed_price: flight.resalePrice,
+                          platform_fee: comision,
+                        });
                         setProcesando(false);
+                        setNuevaTransaccionId(nuevaTransaccion.id);
                         setPagoExitoso(true);
-                      }, 1500);
+                      } catch (err) {
+                        setProcesando(false);
+                        const message =
+                          err instanceof Error
+                            ? err.message
+                            : typeof err === "object" && err !== null && "message" in err
+                              ? String((err as { message: unknown }).message)
+                              : null;
+                        toast.error(
+                          message
+                            ? `No se pudo confirmar el pago: ${message}`
+                            : "No se pudo confirmar el pago.",
+                        );
+                      }
                     }}
                     className="flex w-full items-center justify-center gap-2 rounded-full bg-[var(--color-primary-token)] px-6 py-3.5 text-sm font-bold text-white shadow-sm transition-transform hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
                   >
@@ -674,33 +792,87 @@ function FlightDetail() {
           </Dialog>
 
           {/* How escrow works (moved below checkout for mobile flow) */}
-          <div className="mt-6 rounded-[2rem] border border-border bg-white p-6 shadow-sm">
-            <div className="mb-5 text-xs font-bold uppercase tracking-widest text-[var(--color-ink)]">
-              Protección Escrow
+          {misTransaccion ? (
+            <div className="mt-6 rounded-[2rem] border border-border bg-white p-6 shadow-sm">
+              <div className="mb-5 text-xs font-bold uppercase tracking-widest text-[var(--color-ink)]">
+                Protección Escrow
+              </div>
+              {misTransaccion.state === "reembolsado" ? (
+                <p className="text-sm text-muted-foreground">
+                  Esta transacción fue reembolsada — el pago no llegó a liberarse al vendedor.
+                </p>
+              ) : (
+                <ol className="space-y-5 text-sm">
+                  {(() => {
+                    const realState =
+                      misTransaccion.state === "en_disputa"
+                        ? (misTransaccion.estadoAnteriorDisputa ?? "vendedor_inicia")
+                        : misTransaccion.state;
+                    const idx = [
+                      "pago_retenido",
+                      "vendedor_inicia",
+                      "confirmado",
+                      "liberado",
+                    ].indexOf(realState);
+                    return (
+                      <>
+                        <TimelineStep
+                          done={idx >= 0}
+                          title="1. Pago confirmado"
+                          desc="Traspaso guarda tu dinero seguro."
+                        />
+                        <TimelineStep
+                          done={idx >= 1}
+                          title="2. Trámite iniciado"
+                          desc="Vendedor solicita cambio de titular."
+                        />
+                        <TimelineStep
+                          done={idx >= 2}
+                          title="3. Verificación"
+                          desc="Validamos que el boleto está a tu nombre."
+                        />
+                        <TimelineStep
+                          done={idx >= 3}
+                          title="4. Pago liberado"
+                          desc="El vendedor recibe su dinero."
+                        />
+                      </>
+                    );
+                  })()}
+                </ol>
+              )}
+              {misTransaccion.state === "en_disputa" && (
+                <p className="mt-4 text-xs font-medium text-amber-600">
+                  Esta transacción está en pausa por un reporte abierto.
+                </p>
+              )}
             </div>
-            <ol className="space-y-5 text-sm">
-              <TimelineStep
-                done
-                title="1. Pago retenido"
-                desc="Traspaso guarda tu dinero seguro."
-              />
-              <TimelineStep
-                done={step >= 1}
-                title="2. Trámite iniciado"
-                desc="Vendedor solicita cambio de titular."
-              />
-              <TimelineStep
-                done={step >= 2}
-                title="3. Verificación"
-                desc="Validamos que el boleto está a tu nombre."
-              />
-              <TimelineStep
-                done={step >= 3}
-                title="4. Pago liberado"
-                desc="El vendedor recibe su dinero."
-              />
-            </ol>
-          </div>
+          ) : noDisponibleParaComprar ? (
+            <div className="mt-6 flex items-center gap-2 rounded-[2rem] border border-border bg-white p-6 shadow-sm">
+              <CheckCircle2 className="h-5 w-5 shrink-0 text-[var(--color-secondary-token)]" />
+              <span className="text-sm font-bold text-[var(--color-ink)]">
+                Este pasaje ya fue vendido
+              </span>
+            </div>
+          ) : (
+            <div className="mt-6 rounded-[2rem] border border-border bg-white p-6 shadow-sm">
+              <div className="mb-5 text-xs font-bold uppercase tracking-widest text-[var(--color-ink)]">
+                Protección Escrow
+              </div>
+              <ol className="space-y-5 text-sm">
+                <TimelineStep title="1. Pago confirmado" desc="Traspaso guarda tu dinero seguro." />
+                <TimelineStep
+                  title="2. Trámite iniciado"
+                  desc="Vendedor solicita cambio de titular."
+                />
+                <TimelineStep
+                  title="3. Verificación"
+                  desc="Validamos que el boleto está a tu nombre."
+                />
+                <TimelineStep title="4. Pago liberado" desc="El vendedor recibe su dinero." />
+              </ol>
+            </div>
+          )}
         </aside>
       </div>
     </div>

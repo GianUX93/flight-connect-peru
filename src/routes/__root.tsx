@@ -14,6 +14,8 @@ import { SiteHeader } from "../components/site/SiteHeader";
 import { SiteFooter } from "../components/site/SiteFooter";
 import { AlertsProvider } from "../lib/alerts-context";
 import { SavedProvider } from "../lib/saved-context";
+import { AuthProvider } from "../lib/auth-context";
+import { PaymentProvider } from "../lib/payment-context";
 import { Toaster } from "sonner";
 
 function NotFoundComponent() {
@@ -117,18 +119,22 @@ function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   return (
     <QueryClientProvider client={queryClient}>
-      <AlertsProvider>
-        <SavedProvider>
-          <div className="flex min-h-screen flex-col">
-            <SiteHeader />
-            <main className="flex-1">
-              <Outlet />
-            </main>
-            <SiteFooter />
-          </div>
-          <Toaster theme="light" position="top-center" />
-        </SavedProvider>
-      </AlertsProvider>
+      <AuthProvider>
+        <AlertsProvider>
+          <SavedProvider>
+            <PaymentProvider>
+              <div className="flex min-h-screen flex-col">
+                <SiteHeader />
+                <main className="flex-1">
+                  <Outlet />
+                </main>
+                <SiteFooter />
+              </div>
+              <Toaster theme="light" position="top-center" />
+            </PaymentProvider>
+          </SavedProvider>
+        </AlertsProvider>
+      </AuthProvider>
     </QueryClientProvider>
   );
 }

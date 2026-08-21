@@ -1,28 +1,68 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowRight, ShieldCheck, Lock, Clock3, MapPin, Tag } from "lucide-react";
-import { flights, testimonials } from "@/lib/mock-data";
-import { activeFlights, lastCallFlights } from "@/lib/flight-utils";
+import { testimonials, airports } from "@/lib/mock-data";
+import { activeFlights, lastCallFlights, tramoVigente } from "@/lib/flight-utils";
+import { getActiveFlights } from "@/lib/services/flights";
 import { FlightCard } from "@/components/site/FlightCard";
+import { useAuth } from "@/lib/auth-context";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import { useQuery } from "@tanstack/react-query";
 import gsap from "gsap";
+
+// Sin librería de fotos por ciudad todavía — un mapa curado a mano por código
+// de aeropuerto es la forma más honesta de mostrar una foto real sin inventar
+// una integración que no existe. El destino en sí (qué ciudad se muestra) sí
+// es real: se calcula abajo según qué ruta tiene más publicaciones activas.
+const DESTINO_FOTO: Record<string, string> = {
+  CUZ: "https://images.unsplash.com/photo-1587595431973-160d0d94add1?w=800&q=80",
+  AQP: "https://images.unsplash.com/photo-1531968455001-5c5272a41129?w=800&q=80",
+  PIU: "https://images.unsplash.com/photo-1590523277543-a94d2e4eb00b?w=800&q=80",
+  IQT: "https://images.unsplash.com/photo-1601582589144-b6a4c0d5dccb?w=800&q=80",
+  TRU: "https://images.unsplash.com/photo-1580889240911-ed861cbe6ee6?w=800&q=80",
+  TPP: "https://images.unsplash.com/photo-1544928147-79a2dbc1f389?w=800&q=80",
+  CIX: "https://images.unsplash.com/photo-1533050487297-09b450131914?w=800&q=80",
+  LIM: "https://images.unsplash.com/photo-1531968455001-5c5272a41129?w=800&q=80",
+};
+const DESTINO_DEFAULT = "CUZ";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
       { title: "Traspaso — Viaja por el Perú a mitad de precio" },
-      { name: "description", content: "Marketplace peruano para comprar pasajes aéreos endosados." },
+      {
+        name: "description",
+        content: "Marketplace peruano para comprar pasajes aéreos endosados.",
+      },
     ],
   }),
   component: Landing,
 });
 
 function Landing() {
-  const highlighted = activeFlights(flights).slice(0, 4);
-  const lastCallCount = lastCallFlights(flights).length;
-  
+  const { user } = useAuth();
+  const { data: fetchedFlights = [] } = useQuery({
+    queryKey: ["flights", "active"],
+    queryFn: getActiveFlights,
+  });
+  const highlighted = activeFlights(fetchedFlights).slice(0, 4);
+  const lastCallCount = lastCallFlights(fetchedFlights).length;
+
+  // Destino top real: el código de destino con más publicaciones activas
+  // ahora mismo, no un dato inventado ni fijo.
+  const destinoTopCode = useMemo(() => {
+    const conteo: Record<string, number> = {};
+    for (const f of fetchedFlights) {
+      const code = tramoVigente(f).destination.code;
+      conteo[code] = (conteo[code] ?? 0) + 1;
+    }
+    const [top] = Object.entries(conteo).sort((a, b) => b[1] - a[1])[0] ?? [];
+    return top ?? DESTINO_DEFAULT;
+  }, [fetchedFlights]);
+  const destinoTop = airports[destinoTopCode] ?? airports[DESTINO_DEFAULT];
+
   const heroRef = useRef<HTMLDivElement>(null);
-  
+
   useEffect(() => {
     if (!heroRef.current) return;
     const ctx = gsap.context(() => {
@@ -31,7 +71,7 @@ function Landing() {
         opacity: 0,
         duration: 0.6,
         stagger: 0.1,
-        ease: "power2.out"
+        ease: "power2.out",
       });
       gsap.from(".bento-card", {
         scale: 0.95,
@@ -39,7 +79,7 @@ function Landing() {
         duration: 0.5,
         stagger: 0.05,
         ease: "back.out(1.2)",
-        delay: 0.2
+        delay: 0.2,
       });
     }, heroRef);
     return () => ctx.revert();
@@ -50,7 +90,6 @@ function Landing() {
       {/* Hero Bento Grid */}
       <section className="mx-auto max-w-7xl px-4 pt-8 md:pt-12 sm:px-6">
         <div className="grid grid-cols-1 md:grid-cols-12 gap-4 auto-rows-[180px] md:auto-rows-[240px]">
-          
           {/* Main Value Prop */}
           <div className="bento-card md:col-span-8 md:row-span-2 rounded-[2rem] bg-[var(--color-ink)] p-8 md:p-12 text-white flex flex-col justify-center relative overflow-hidden">
             <div className="relative z-10">
@@ -59,7 +98,8 @@ function Landing() {
                 El marketplace peruano de pasajes
               </div>
               <h1 className="font-display text-4xl md:text-6xl font-extrabold leading-[1.1] tracking-tight">
-                Vuelos que otros no pueden usar,<br/>
+                Vuelos que otros no pueden usar,
+                <br />
                 <span className="text-[var(--color-primary-token)]">a mitad de precio.</span>
               </h1>
               <p className="mt-4 max-w-md text-gray-300 font-medium">
@@ -81,18 +121,26 @@ function Landing() {
               </div>
             </div>
             {/* Background Image subtle overlay */}
-            <img src="https://images.unsplash.com/photo-1522814701227-6f8e77a16e5f?w=800&q=80" alt="People traveling" className="absolute inset-0 w-full h-full object-cover opacity-20 mix-blend-overlay" />
+            <img
+              src="https://images.unsplash.com/photo-1522814701227-6f8e77a16e5f?w=800&q=80"
+              alt="People traveling"
+              className="absolute inset-0 w-full h-full object-cover opacity-20 mix-blend-overlay"
+            />
           </div>
 
-          {/* Destino Destacado: Cusco */}
+          {/* Destino top: se calcula solo, según qué ruta tiene más publicaciones activas */}
           <div className="bento-card md:col-span-4 md:row-span-1 rounded-[2rem] relative overflow-hidden group">
-            <img src="https://images.unsplash.com/photo-1587595431973-160d0d94add1?w=800&q=80" alt="Cusco" className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
+            <img
+              src={DESTINO_FOTO[destinoTopCode] ?? DESTINO_FOTO[DESTINO_DEFAULT]}
+              alt={destinoTop.city}
+              className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+            />
             <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent" />
             <div className="absolute bottom-6 left-6 text-white">
               <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest text-white/80 mb-1">
                 <MapPin className="h-3.5 w-3.5" /> Destino Top
               </div>
-              <div className="font-display text-3xl font-bold">Cusco</div>
+              <div className="font-display text-3xl font-bold">{destinoTop.city}</div>
             </div>
           </div>
 
@@ -105,8 +153,12 @@ function Landing() {
           {/* Promoción */}
           <div className="bento-card md:col-span-2 md:row-span-1 rounded-[2rem] bg-white border border-border p-6 flex flex-col justify-center shadow-sm">
             <Tag className="h-7 w-7 text-[var(--color-primary-token)] mb-3" />
-            <h3 className="font-display font-bold text-[var(--color-ink)] leading-tight text-lg">Ahorra hasta 80%</h3>
-            <p className="text-xs text-muted-foreground mt-1 font-medium">En vuelos última llamada</p>
+            <h3 className="font-display font-bold text-[var(--color-ink)] leading-tight text-lg">
+              Ahorra hasta 80%
+            </h3>
+            <p className="text-xs text-muted-foreground mt-1 font-medium">
+              En vuelos última llamada
+            </p>
           </div>
         </div>
       </section>
@@ -115,7 +167,9 @@ function Landing() {
       <section className="mx-auto max-w-7xl px-4 py-16 sm:px-6">
         <div className="flex items-end justify-between gap-4 hero-elem">
           <div>
-            <h2 className="font-display text-3xl font-extrabold text-[var(--color-ink)]">Disponibles ahora</h2>
+            <h2 className="font-display text-3xl font-extrabold text-[var(--color-ink)]">
+              Disponibles ahora
+            </h2>
             <p className="mt-2 text-sm text-muted-foreground font-medium">
               Vuelos confirmados listos para endoso seguro.
             </p>
@@ -127,10 +181,10 @@ function Landing() {
             Ver todos <ArrowRight className="h-4 w-4" />
           </Link>
         </div>
-        
+
         <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-4 hero-elem">
           {highlighted.map((f) => (
-            <FlightCard key={f.id} flight={f} />
+            <FlightCard key={f.id} flight={f} isOwnListing={user?.id === f.seller.id} />
           ))}
         </div>
 
@@ -143,7 +197,8 @@ function Landing() {
                 </div>
                 <div>
                   <div className="text-base font-bold text-[var(--color-ink)]">
-                    {lastCallCount} pasajes en <span className="uppercase tracking-widest text-xs ml-1">Última Llamada</span>
+                    {lastCallCount} pasajes en{" "}
+                    <span className="uppercase tracking-widest text-xs ml-1">Última Llamada</span>
                   </div>
                   <div className="text-sm font-medium text-[var(--color-ink)]/70 mt-0.5">
                     Salen en menos de 24h. Ofertas más agresivas con trámite inmediato.
@@ -161,13 +216,18 @@ function Landing() {
           </div>
         )}
       </section>
-      
+
       {/* Testimonials */}
       <section className="mx-auto max-w-7xl px-4 pb-16 sm:px-6 hero-elem border-t border-dashed border-border pt-16">
-        <h2 className="font-display text-3xl font-extrabold text-[var(--color-ink)] mb-8 text-center">Viajeros que ya traspasaron</h2>
+        <h2 className="font-display text-3xl font-extrabold text-[var(--color-ink)] mb-8 text-center">
+          Viajeros que ya traspasaron
+        </h2>
         <div className="grid gap-6 md:grid-cols-3">
           {testimonials.map((t) => (
-            <figure key={t.name} className="flex flex-col justify-between rounded-[2rem] bg-white border border-border p-8 shadow-sm">
+            <figure
+              key={t.name}
+              className="flex flex-col justify-between rounded-[2rem] bg-white border border-border p-8 shadow-sm"
+            >
               <blockquote className="font-sans text-lg font-medium leading-snug text-[var(--color-ink)]">
                 "{t.quote}"
               </blockquote>
@@ -188,4 +248,3 @@ function Landing() {
     </div>
   );
 }
-

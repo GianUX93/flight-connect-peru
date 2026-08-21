@@ -127,11 +127,15 @@ export interface Flight {
   // que una vista, ya que implica "quiero volver a esto".
   savedCount: number;
   note?: string;
+  // Presente solo cuando dbStatus === "rechazado" — el motivo que dejó el
+  // revisor en /admin/revisiones al rechazar la publicación.
+  rejectionReason?: string;
+  rejectionDetail?: string;
   datosPasajero: DatosPasajero;
   cargoAerolineaEstimado: CargoAerolineaEstimado;
 }
 
-const airports: Record<string, Airport> = {
+export const airports: Record<string, Airport> = {
   LIM: { code: "LIM", city: "Lima", region: "Callao" },
   CUZ: { code: "CUZ", city: "Cusco", region: "Cusco" },
   AQP: { code: "AQP", city: "Arequipa", region: "Arequipa" },
@@ -668,131 +672,19 @@ export interface Transaction {
   // correcto mientras la transacción está en disputa, y no perderlo si se resuelve.
   estadoAnteriorDisputa?: Transaction["state"];
   reporte?: ReporteProblema;
+  // Presente solo en transacciones reales de Supabase — chat, disputas y la
+  // verificación detallada del cargo de aerolínea todavía no están conectados
+  // para estas, así que la UI las oculta cuando isReal es true.
+  isReal?: boolean;
+  flight?: Flight | null;
+  // Gate de confianza: el vendedor no puede liberar el pago retenido hasta que
+  // el comprador confirme que revisó el pasaje/evidencia y está todo bien.
+  // Solo aplica a transacciones reales — las mock no tienen esta columna, así
+  // que se tratan como ya confirmadas para no romper la demo existente.
+  buyerConfirmedOk?: boolean;
 }
 
-export const transactions: Transaction[] = [
-  {
-    id: "t-101",
-    // Comprador con trámite recién iniciado: todavía no mandó sus datos de endoso ni
-    // escribió al vendedor — caso interactivo para probar el formulario y el chat vacíos.
-    flightId: "f-001",
-    role: "buyer",
-    state: "vendedor_inicia",
-    amount: 219,
-    createdAt: hoursFromNow(-3),
-    cargoAerolineaConfirmado: cargoAerolineaConfirmadoDefault(),
-    chatMensajes: [],
-    datosCompradorEndoso: datosCompradorEndosoDefault(),
-  },
-  {
-    id: "t-102",
-    // Vendedor con datos del comprador ya recibidos y una conversación en curso por el
-    // chat interno — nunca por WhatsApp ni exponiendo el teléfono real de nadie.
-    flightId: "f-003",
-    role: "seller",
-    state: "pago_retenido",
-    amount: 129,
-    createdAt: hoursFromNow(-1),
-    cargoAerolineaConfirmado: cargoAerolineaConfirmadoDefault(),
-    chatMensajes: [
-      {
-        autor: "comprador",
-        texto: "Hola! Ya te envié mis datos para el endoso, cualquier cosa avísame.",
-        timestamp: hoursFromNow(-0.8),
-      },
-      {
-        autor: "vendedor",
-        texto: "Perfecto, gracias. Inicio el trámite con la aerolínea hoy mismo.",
-        timestamp: hoursFromNow(-0.5),
-      },
-    ],
-    datosCompradorEndoso: {
-      nombres: "Fernando",
-      apellidoPaterno: "Salazar",
-      apellidoMaterno: "Vega",
-      tipoDocumento: "DNI",
-      numeroDocumento: "72841093",
-      completadoPorComprador: true,
-    },
-  },
-  {
-    id: "t-103",
-    flightId: "f-009",
-    role: "buyer",
-    state: "liberado",
-    amount: 169,
-    createdAt: hoursFromNow(-72),
-    cargoAerolineaConfirmado: cargoAerolineaConfirmadoDefault(),
-    chatMensajes: [],
-    datosCompradorEndoso: { ...datosCompradorEndosoDefault(), completadoPorComprador: true },
-  },
-  {
-    id: "t-104",
-    // Trámite en curso como vendedor: acá es donde se reporta el cargo confirmado con
-    // evidencia, y donde todavía se está esperando que el comprador mande sus datos.
-    flightId: "f-004",
-    role: "seller",
-    state: "vendedor_inicia",
-    amount: 289,
-    createdAt: hoursFromNow(-1),
-    cargoAerolineaConfirmado: cargoAerolineaConfirmadoDefault(),
-    chatMensajes: [],
-    datosCompradorEndoso: datosCompradorEndosoDefault(),
-  },
-  {
-    id: "t-105",
-    // Ejemplo con el cargo ya verificado y aceptado — el neto final ya refleja el descuento.
-    flightId: "f-002",
-    role: "seller",
-    state: "confirmado",
-    amount: 149,
-    createdAt: hoursFromNow(-6),
-    cargoAerolineaConfirmado: {
-      monto: 12,
-      origen: "reportado_por_vendedor",
-      evidenciaUrl: "https://picsum.photos/seed/t-105-evidencia/600/400",
-      estadoVerificacion: "aceptado",
-      momentoDisponible: "confirmado_en_tramite",
-      revisionManualRequerida: false,
-    },
-    chatMensajes: [
-      {
-        autor: "vendedor",
-        texto: "¿Ya recibiste el correo de confirmación de la aerolínea?",
-        timestamp: hoursFromNow(-2),
-      },
-    ],
-    datosCompradorEndoso: {
-      nombres: "Karla",
-      apellidoPaterno: "Bravo",
-      apellidoMaterno: "Núñez",
-      tipoDocumento: "DNI",
-      numeroDocumento: "68312450",
-      completadoPorComprador: true,
-    },
-  },
-  {
-    id: "t-106",
-    // Ejemplo de caso límite: el cargo reportado (S/76) supera el 50% del precio de
-    // venta (S/79) → queda pendiente con revisionManualRequerida y, si se acepta, el
-    // neto final se calcula con la comisión efectiva (piso en S/0, nunca negativo).
-    flightId: "f-006",
-    role: "seller",
-    state: "confirmado",
-    amount: 79,
-    createdAt: hoursFromNow(-2),
-    cargoAerolineaConfirmado: {
-      monto: 76,
-      origen: "reportado_por_vendedor",
-      evidenciaUrl: "https://picsum.photos/seed/t-106-evidencia/600/400",
-      estadoVerificacion: "pendiente_revision",
-      momentoDisponible: "confirmado_en_tramite",
-      revisionManualRequerida: true,
-    },
-    chatMensajes: [],
-    datosCompradorEndoso: datosCompradorEndosoDefault(),
-  },
-];
+export const transactions: Transaction[] = [];
 
 export const currentUser = {
   id: "u-me",

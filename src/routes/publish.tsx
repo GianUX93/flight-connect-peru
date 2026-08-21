@@ -1,22 +1,38 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
-import { ArrowRight, CheckCircle2, Sparkles, Upload, Loader2, ChevronDown } from "lucide-react";
+import { useAuth, useRequireAuth } from "@/lib/auth-context";
+import { createFlight, uploadFlightVoucher } from "@/lib/services/flights";
+import { useEffect, useMemo, useRef, useState } from "react";
+import gsap from "gsap";
+import {
+  ArrowRight,
+  CheckCircle2,
+  Sparkles,
+  Upload,
+  Loader2,
+  ChevronDown,
+  PlaneLanding,
+} from "lucide-react";
 import { toast } from "sonner";
 import {
   airportsList,
+  airports,
   airlines,
   type AsientoCategoria,
   type Asiento,
   type TramoAVender,
+  type TipoDocumento,
 } from "@/lib/mock-data";
 import {
-  ASIENTO_ALEATORIO_MENSAJE,
-  ASIENTO_CATEGORIA_LABEL,
   PLATFORM_COMMISSION_RATE,
   S,
   asientoLabel,
   tramoAVenderLabel,
+  sanitizeNumeroDocumento,
+  DOCUMENTO_MAX_LEN,
 } from "@/lib/flight-utils";
+import { splitPhone } from "@/lib/phone-prefixes";
+import { PhoneInput } from "@/components/site/PhoneInput";
+import { Field, PillToggle, AsientoFields, ReceiptRow } from "@/components/site/PublishFormFields";
 
 export const Route = createFileRoute("/publish")({
   head: () => ({
@@ -33,8 +49,48 @@ export const Route = createFileRoute("/publish")({
 });
 
 function Publish() {
+  const { ready } = useRequireAuth();
+  const { user, profile } = useAuth();
   const [step, setStep] = useState(0);
+  // El paso más lejano al que ya llegó — el stepper solo deja saltar a pasos
+  // que ya se completaron, nunca adelante a uno que todavía no se validó.
+  const [maxStepReached, setMaxStepReached] = useState(0);
+  const formCardRef = useRef<HTMLDivElement | null>(null);
+  const titleRef = useRef<HTMLDivElement | null>(null);
+  const stepDirection = useRef(1);
+  const isFirstRender = useRef(true);
+
+  // Anima la entrada del contenido del paso (fade + slide sutil, con dirección
+  // según si se avanzó o retrocedió) y lleva el scroll al inicio del formulario
+  // — sin esto, "Continuar" deja al usuario viendo la parte de abajo del paso
+  // anterior en vez del inicio del nuevo.
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    if (!formCardRef.current) return;
+    gsap.fromTo(
+      formCardRef.current,
+      { opacity: 0, x: stepDirection.current * 16 },
+      { opacity: 1, x: 0, duration: 0.35, ease: "power2.out" },
+    );
+    // scrollIntoView ignora el header sticky (56px) y deja el título tapado
+    // detrás de él — se calcula el offset a mano.
+    if (titleRef.current) {
+      const SITE_HEADER_HEIGHT = 56;
+      const top =
+        titleRef.current.getBoundingClientRect().top + window.scrollY - SITE_HEADER_HEIGHT - 16;
+      window.scrollTo({ top, behavior: "smooth" });
+    }
+  }, [step]);
+
+  useEffect(() => {
+    setMaxStepReached((prev) => Math.max(prev, step));
+  }, [step]);
+
   const [scanning, setScanning] = useState(false);
+  const [publicando, setPublicando] = useState(false);
   const [precioTouched, setPrecioTouched] = useState(false);
   const [data, setData] = useState({
     airline: "LATAM",
@@ -61,17 +117,41 @@ function Publish() {
     asientoRegresoCategoria: "ventana" as AsientoCategoria | null,
     asientoRegresoNumero: "",
     booking: "",
-    idUploaded: false,
+    voucherUrl: null as string | null,
+    voucherName: "",
     pasajero: {
       nombres: "",
       apellidoPaterno: "",
       apellidoMaterno: "",
       email: "",
+      telefonoPrefijo: "+51",
       telefono: "",
+      tipoDocumento: "DNI" as TipoDocumento,
+      numeroDocumento: "",
     },
     cargoEstimado: null as number | null,
     notaVendedor: "",
   });
+
+  // Prellena el contacto del pasajero con el email/teléfono ya registrados —
+  // solo mientras el vendedor no haya tocado esos campos, para no pisar lo
+  // que ya escribió si el pasaje es de otra persona.
+  useEffect(() => {
+    if (!profile && !user) return;
+    setData((prev) => {
+      if (prev.pasajero.email || prev.pasajero.telefono) return prev;
+      const { prefijo, numero } = splitPhone(profile?.phone ?? null);
+      return {
+        ...prev,
+        pasajero: {
+          ...prev.pasajero,
+          email: user?.email ?? prev.pasajero.email,
+          telefonoPrefijo: numero ? prefijo : prev.pasajero.telefonoPrefijo,
+          telefono: numero || prev.pasajero.telefono,
+        },
+      };
+    });
+  }, [profile, user]);
 
   const suggested = useMemo(() => Math.round(data.original * 0.48), [data.original]);
 
@@ -111,33 +191,63 @@ function Publish() {
         }
       : { tipo: "aleatorio", categoria: null, numero: null };
 
-  function handleVoucherUpload(file: File | undefined) {
-    if (!file) return;
+  // Campos obligatorios por paso — bloquea "Continuar" en vez de dejar avanzar
+  // con datos incompletos (evita, por ejemplo, publicar sin fecha/hora de vuelo).
+  const step0Valido =
+    data.flightNumber.trim() !== "" &&
+    data.date !== "" &&
+    data.time !== "" &&
+    data.arrivalTime !== "" &&
+    (!data.hasReturn ||
+      (data.returnDate !== "" && data.returnTime !== "" && data.returnArrivalTime !== "")) &&
+    data.pasajero.nombres.trim() !== "" &&
+    data.pasajero.apellidoPaterno.trim() !== "" &&
+    data.pasajero.email.trim() !== "" &&
+    data.pasajero.telefono.trim() !== "" &&
+    data.pasajero.numeroDocumento.length === DOCUMENTO_MAX_LEN[data.pasajero.tipoDocumento] &&
+    data.booking.trim() !== "" &&
+    !!data.voucherUrl;
+
+  // El mismo archivo que se sube acá cumple dos funciones: dispara el
+  // autocompletado simulado por IA y queda guardado como el comprobante real
+  // que un revisor usa para aprobar la publicación — antes se pedía subirlo
+  // dos veces (uno acá, otro en un paso "Reserva" aparte) sin necesidad.
+  async function handleVoucherUpload(file: File | undefined) {
+    if (!file || !user) return;
     setScanning(true);
-    window.setTimeout(() => {
-      setData((prev) => ({
-        ...prev,
-        airline: "LATAM",
-        flightNumber: "LA 2091",
-        from: "LIM",
-        to: "AQP",
-        date: new Date(Date.now() + 12 * 86400_000).toISOString().slice(0, 10),
-        time: "08:45",
-        arrivalTime: "10:20",
-        baggage: "23kg incluido",
-        pasajero: {
-          ...prev.pasajero,
-          nombres: prev.pasajero.nombres || "Andrea",
-          apellidoPaterno: prev.pasajero.apellidoPaterno || "Salazar",
-          apellidoMaterno: prev.pasajero.apellidoMaterno || "Rojas",
-        },
-      }));
+    try {
+      const voucherUrl = await uploadFlightVoucher(user.id, file);
+      window.setTimeout(() => {
+        setData((prev) => ({
+          ...prev,
+          voucherUrl,
+          voucherName: file.name,
+          airline: "LATAM",
+          flightNumber: "LA 2091",
+          booking: prev.booking || "XZK4P9",
+          from: "LIM",
+          to: "AQP",
+          date: new Date(Date.now() + 12 * 86400_000).toISOString().slice(0, 10),
+          time: "08:45",
+          arrivalTime: "10:20",
+          baggage: "23kg incluido",
+          pasajero: {
+            ...prev.pasajero,
+            nombres: prev.pasajero.nombres || "Andrea",
+            apellidoPaterno: prev.pasajero.apellidoPaterno || "Salazar",
+            apellidoMaterno: prev.pasajero.apellidoMaterno || "Rojas",
+          },
+        }));
+        setScanning(false);
+        toast.success("Datos extraídos del voucher", {
+          description:
+            "Vuelo y pasajero completados. Revisa que todo esté correcto — el email y teléfono no vienen en el voucher, complétalos tú.",
+        });
+      }, 1800);
+    } catch {
       setScanning(false);
-      toast.success("Datos extraídos del voucher", {
-        description:
-          "Vuelo y pasajero completados. Revisa que todo esté correcto — el email y teléfono no vienen en el voucher, complétalos tú.",
-      });
-    }, 1800);
+      toast.error("No se pudo subir el comprobante. Intenta de nuevo.");
+    }
   }
 
   function toggleHasReturn(hasReturn: boolean) {
@@ -150,15 +260,88 @@ function Publish() {
     });
   }
 
+  // Valida y arma la fecha/hora de un tramo; null si falta algún dato, en vez de
+  // dejar que `new Date(...).toISOString()` reviente con "Invalid time value".
+  function buildIso(dateStr: string, timeStr: string): string | null {
+    if (!dateStr || !timeStr) return null;
+    const d = new Date(`${dateStr}T${timeStr}`);
+    return Number.isNaN(d.getTime()) ? null : d.toISOString();
+  }
+
+  async function handlePublicar() {
+    if (!user) {
+      toast.error("Necesitas iniciar sesión para publicar.");
+      return;
+    }
+    if (user.id.startsWith("sim-")) {
+      toast.error(
+        "Esta sesión es simulada — publicar un pasaje real requiere iniciar sesión con una cuenta real de Supabase. Cierra sesión y vuelve a entrar con esa cuenta.",
+      );
+      return;
+    }
+
+    const departureIso = buildIso(data.date, data.time);
+    if (!departureIso) {
+      toast.error("Falta la fecha y hora de salida del vuelo de ida.");
+      setStep(0);
+      return;
+    }
+    const returnIso = data.hasReturn ? buildIso(data.returnDate, data.returnTime) : null;
+    if (data.hasReturn && !returnIso) {
+      toast.error("Falta la fecha y hora de salida del vuelo de vuelta.");
+      setStep(0);
+      return;
+    }
+
+    setPublicando(true);
+    try {
+      await createFlight({
+        ticket_type: data.hasReturn ? "ida_y_vuelta" : "solo_ida",
+        origin_code: data.from,
+        origin_city: airportsList.find((a) => a.code === data.from)?.city ?? data.from,
+        destination_code: data.to,
+        destination_city: airportsList.find((a) => a.code === data.to)?.city ?? data.to,
+        departure_date: departureIso,
+        return_date: returnIso,
+        sell_segment: data.tramoAVender,
+        airline: data.airline,
+        booking_code: data.flightNumber,
+        original_price: data.original,
+        resale_price: data.price,
+        seat_outbound: vendeIda ? asientoIda : null,
+        seat_return: vendeRegreso ? asientoRegreso : null,
+        airline_fee_estimate: data.cargoEstimado,
+        status: "pendiente_revision",
+        seller_id: user.id,
+        reservation_code: data.booking,
+        voucher_url: data.voucherUrl,
+        seller_note: data.notaVendedor.trim() || null,
+      });
+      setStep(3);
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : typeof err === "object" && err !== null && "message" in err
+            ? String((err as { message: unknown }).message)
+            : null;
+      toast.error(message ? `No se pudo publicar: ${message}` : "No se pudo publicar el pasaje.");
+    } finally {
+      setPublicando(false);
+    }
+  }
+
   function rutaLabel() {
     if (!data.hasReturn || data.tramoAVender === "ida") return `${data.from} → ${data.to}`;
     if (data.tramoAVender === "regreso") return `${data.returnFrom} → ${data.returnTo}`;
     return `${data.from} → ${data.to} → ${data.returnFrom}`;
   }
 
-  const steps = ["Vuelo", "Reserva", "Precio", "Listo"];
+  const steps = ["Vuelo", "Precio", "Listo"];
 
-  if (step === 4) {
+  if (!ready) return null;
+
+  if (step === 3) {
     return (
       <div className="mx-auto max-w-2xl px-4 py-16 sm:px-6">
         <div className="rounded-[2rem] border border-border bg-white p-10 text-center shadow-sm">
@@ -166,11 +349,11 @@ function Publish() {
             <CheckCircle2 className="h-8 w-8" />
           </div>
           <h1 className="mt-6 font-display text-4xl font-extrabold text-[var(--color-ink)]">
-            Pasaje publicado
+            Enviado a revisión
           </h1>
           <p className="mt-3 text-sm font-medium text-muted-foreground leading-relaxed">
-            Empezaremos a mostrarlo en el marketplace. Verás las vistas e interesados en tiempo real
-            desde "Mis operaciones" → Publicados.
+            Un revisor confirmará tu boleto antes de que aparezca en el marketplace — normalmente
+            toma poco tiempo. Puedes seguir el estado desde "Mis operaciones" → Publicados.
           </p>
           <div className="mt-8 inline-flex items-baseline gap-2 rounded-2xl bg-surface-2 px-6 py-4">
             <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
@@ -202,7 +385,10 @@ function Publish() {
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6 md:py-14">
-      <div className="text-xs font-bold uppercase tracking-widest text-[var(--color-primary-token)]">
+      <div
+        ref={titleRef}
+        className="text-xs font-bold uppercase tracking-widest text-[var(--color-primary-token)]"
+      >
         Publicar pasaje
       </div>
       <h1 className="mt-2 font-display text-4xl md:text-5xl font-extrabold text-[var(--color-ink)]">
@@ -211,32 +397,52 @@ function Publish() {
 
       {/* Stepper */}
       <div className="mt-10 flex items-center gap-2">
-        {steps.map((s, i) => (
-          <div key={s} className="flex flex-1 items-center gap-2">
-            <div
-              className={`grid h-8 w-8 shrink-0 place-items-center rounded-full text-xs font-bold transition-colors ${
-                i <= step
-                  ? "bg-[var(--color-ink)] text-white"
-                  : "border border-border bg-white text-gray-400"
-              }`}
-            >
-              {i + 1}
+        {steps.map((s, i) => {
+          const alcanzable = i <= maxStepReached && i !== step;
+          return (
+            <div key={s} className="flex flex-1 items-center gap-2">
+              <button
+                type="button"
+                disabled={!alcanzable}
+                onClick={() => {
+                  stepDirection.current = i > step ? 1 : -1;
+                  setStep(i);
+                }}
+                className={`flex shrink-0 items-center gap-2 transition-opacity ${
+                  alcanzable ? "cursor-pointer hover:opacity-70" : "cursor-default"
+                }`}
+              >
+                <span
+                  className={`grid h-8 w-8 shrink-0 place-items-center rounded-full text-xs font-bold transition-colors ${
+                    i <= step
+                      ? "bg-[var(--color-ink)] text-white"
+                      : "border border-border bg-white text-gray-400"
+                  }`}
+                >
+                  {i + 1}
+                </span>
+                <span
+                  className={`hidden text-xs font-bold uppercase tracking-wider sm:block ${
+                    i === step ? "text-[var(--color-ink)]" : "text-gray-400"
+                  }`}
+                >
+                  {s}
+                </span>
+              </button>
+              {i < steps.length - 1 && (
+                <div
+                  className={`h-1 flex-1 rounded-full ${i < step ? "bg-[var(--color-ink)]" : "bg-white"}`}
+                />
+              )}
             </div>
-            <div
-              className={`hidden text-xs font-bold uppercase tracking-wider sm:block ${i === step ? "text-[var(--color-ink)]" : "text-gray-400"}`}
-            >
-              {s}
-            </div>
-            {i < steps.length - 1 && (
-              <div
-                className={`h-1 flex-1 rounded-full ${i < step ? "bg-[var(--color-ink)]" : "bg-white"}`}
-              />
-            )}
-          </div>
-        ))}
+          );
+        })}
       </div>
 
-      <div className="mt-10 rounded-[2rem] border border-border bg-white p-6 md:p-10 shadow-sm">
+      <div
+        ref={formCardRef}
+        className="mt-10 rounded-[2rem] border border-border bg-white p-6 md:p-10 shadow-sm"
+      >
         {step === 0 && (
           <div className="space-y-10">
             <div className="space-y-6">
@@ -248,7 +454,9 @@ function Publish() {
                 className={`flex cursor-pointer items-center gap-4 rounded-2xl border-2 border-dashed p-5 transition-colors ${
                   scanning
                     ? "border-[var(--color-accent-token)]/40 bg-[var(--color-accent-token)]/5"
-                    : "border-border bg-surface-2 hover:border-[var(--color-accent-token)]/40"
+                    : data.voucherUrl
+                      ? "border-[var(--color-secondary-token)] bg-[var(--color-secondary-token)]/5"
+                      : "border-border bg-surface-2 hover:border-[var(--color-accent-token)]/40"
                 }`}
               >
                 <input
@@ -261,25 +469,50 @@ function Publish() {
                     e.target.value = "";
                   }}
                 />
-                <div className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[var(--color-accent-token)]/10 text-[var(--color-accent-token)]">
+                <div
+                  className={`grid h-11 w-11 shrink-0 place-items-center rounded-full ${
+                    data.voucherUrl && !scanning
+                      ? "bg-[var(--color-secondary-token)]/10 text-[var(--color-secondary-token)]"
+                      : "bg-[var(--color-accent-token)]/10 text-[var(--color-accent-token)]"
+                  }`}
+                >
                   {scanning ? (
                     <Loader2 className="h-5 w-5 animate-spin" />
+                  ) : data.voucherUrl ? (
+                    <CheckCircle2 className="h-5 w-5" />
                   ) : (
                     <Upload className="h-5 w-5" />
                   )}
                 </div>
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5 text-sm font-bold text-[var(--color-ink)]">
-                    <Sparkles className="h-3.5 w-3.5 text-[var(--color-accent-token)]" />
-                    {scanning ? "Analizando con IA…" : "Autocompletar con IA"}
+                    {!scanning && !data.voucherUrl && (
+                      <Sparkles className="h-3.5 w-3.5 text-[var(--color-accent-token)]" />
+                    )}
+                    {scanning
+                      ? "Analizando con IA…"
+                      : data.voucherUrl
+                        ? data.voucherName || "Comprobante subido"
+                        : "Comprobante de reserva"}
                   </div>
                   <p className="text-xs font-medium text-muted-foreground">
                     {scanning
                       ? "Extrayendo aerolínea, vuelo, ruta y horarios del voucher."
-                      : "Sube tu voucher o captura de la reserva y completamos estos campos por ti."}
+                      : data.voucherUrl
+                        ? "Un revisor lo confirma antes de publicar. Toca para reemplazarlo."
+                        : "Sube tu voucher o captura de la reserva — completamos estos campos por ti y queda como comprobante para la revisión."}
                   </p>
                 </div>
               </label>
+
+              <Field label="Código de reserva (PNR)" required>
+                <input
+                  className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm font-mono font-bold uppercase tracking-widest focus:border-[var(--color-primary-token)] focus:ring-[var(--color-primary-token)]"
+                  placeholder="ABC123"
+                  value={data.booking}
+                  onChange={(e) => setData({ ...data, booking: e.target.value.toUpperCase() })}
+                />
+              </Field>
 
               <div className="grid gap-5 sm:grid-cols-2">
                 <Field label="Aerolínea">
@@ -330,7 +563,13 @@ function Publish() {
                       <select
                         className="w-full appearance-none rounded-xl border border-border bg-background py-3 pl-4 pr-10 text-sm font-medium focus:border-[var(--color-primary-token)] focus:ring-[var(--color-primary-token)]"
                         value={data.from}
-                        onChange={(e) => setData({ ...data, from: e.target.value })}
+                        onChange={(e) =>
+                          setData({
+                            ...data,
+                            from: e.target.value,
+                            returnTo: data.hasReturn ? e.target.value : data.returnTo,
+                          })
+                        }
                       >
                         {airportsList.map((a) => (
                           <option key={a.code} value={a.code}>
@@ -346,7 +585,13 @@ function Publish() {
                       <select
                         className="w-full appearance-none rounded-xl border border-border bg-background py-3 pl-4 pr-10 text-sm font-medium focus:border-[var(--color-primary-token)] focus:ring-[var(--color-primary-token)]"
                         value={data.to}
-                        onChange={(e) => setData({ ...data, to: e.target.value })}
+                        onChange={(e) =>
+                          setData({
+                            ...data,
+                            to: e.target.value,
+                            returnFrom: data.hasReturn ? e.target.value : data.returnFrom,
+                          })
+                        }
                       >
                         {airportsList.map((a) => (
                           <option key={a.code} value={a.code}>
@@ -407,38 +652,14 @@ function Publish() {
                     Tramo de regreso
                   </div>
                   <div className="grid gap-5 sm:grid-cols-2">
-                    <Field label="Origen">
-                      <div className="relative">
-                        <select
-                          className="w-full appearance-none rounded-xl border border-border bg-background py-3 pl-4 pr-10 text-sm font-medium focus:border-[var(--color-primary-token)] focus:ring-[var(--color-primary-token)]"
-                          value={data.returnFrom}
-                          onChange={(e) => setData({ ...data, returnFrom: e.target.value })}
-                        >
-                          {airportsList.map((a) => (
-                            <option key={a.code} value={a.code}>
-                              {a.city} ({a.code})
-                            </option>
-                          ))}
-                        </select>
-                        <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                      </div>
-                    </Field>
-                    <Field label="Destino">
-                      <div className="relative">
-                        <select
-                          className="w-full appearance-none rounded-xl border border-border bg-background py-3 pl-4 pr-10 text-sm font-medium focus:border-[var(--color-primary-token)] focus:ring-[var(--color-primary-token)]"
-                          value={data.returnTo}
-                          onChange={(e) => setData({ ...data, returnTo: e.target.value })}
-                        >
-                          {airportsList.map((a) => (
-                            <option key={a.code} value={a.code}>
-                              {a.city} ({a.code})
-                            </option>
-                          ))}
-                        </select>
-                        <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                      </div>
-                    </Field>
+                    <div className="sm:col-span-2 flex items-center gap-2 rounded-xl border border-border bg-background px-4 py-3 text-sm font-bold text-[var(--color-ink)]">
+                      <PlaneLanding className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      {airports[data.returnFrom]?.city ?? data.returnFrom} ({data.returnFrom}) →{" "}
+                      {airports[data.returnTo]?.city ?? data.returnTo} ({data.returnTo})
+                      <span className="ml-auto text-xs font-medium text-muted-foreground">
+                        mismo origen y destino que la ida, invertidos
+                      </span>
+                    </div>
                     <Field label="Fecha">
                       <input
                         type="date"
@@ -543,7 +764,7 @@ function Publish() {
                 </p>
               </div>
               <div className="grid gap-5 sm:grid-cols-2">
-                <Field label="Nombres">
+                <Field label="Nombres" required>
                   <input
                     className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm font-medium focus:border-[var(--color-primary-token)] focus:ring-[var(--color-primary-token)]"
                     value={data.pasajero.nombres}
@@ -552,7 +773,7 @@ function Publish() {
                     }
                   />
                 </Field>
-                <Field label="Apellido paterno">
+                <Field label="Apellido paterno" required>
                   <input
                     className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm font-medium focus:border-[var(--color-primary-token)] focus:ring-[var(--color-primary-token)]"
                     value={data.pasajero.apellidoPaterno}
@@ -576,7 +797,7 @@ function Publish() {
                     }
                   />
                 </Field>
-                <Field label="Email">
+                <Field label="Email" required>
                   <input
                     type="email"
                     className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm font-medium focus:border-[var(--color-primary-token)] focus:ring-[var(--color-primary-token)]"
@@ -586,15 +807,68 @@ function Publish() {
                     }
                   />
                 </Field>
-                <Field label="Teléfono">
-                  <input
-                    type="tel"
-                    className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm font-medium focus:border-[var(--color-primary-token)] focus:ring-[var(--color-primary-token)]"
-                    value={data.pasajero.telefono}
-                    onChange={(e) =>
-                      setData({ ...data, pasajero: { ...data.pasajero, telefono: e.target.value } })
+                <Field label="Teléfono" required>
+                  <PhoneInput
+                    prefijo={data.pasajero.telefonoPrefijo}
+                    numero={data.pasajero.telefono}
+                    onChange={(telefonoPrefijo, telefono) =>
+                      setData({
+                        ...data,
+                        pasajero: { ...data.pasajero, telefonoPrefijo, telefono },
+                      })
                     }
                   />
+                </Field>
+                <Field label="Tipo de documento">
+                  <div className="relative">
+                    <select
+                      value={data.pasajero.tipoDocumento}
+                      onChange={(e) => {
+                        const nuevoTipo = e.target.value as TipoDocumento;
+                        setData({
+                          ...data,
+                          pasajero: {
+                            ...data.pasajero,
+                            tipoDocumento: nuevoTipo,
+                            numeroDocumento: data.pasajero.numeroDocumento.slice(
+                              0,
+                              DOCUMENTO_MAX_LEN[nuevoTipo],
+                            ),
+                          },
+                        });
+                      }}
+                      className="w-full appearance-none rounded-xl border border-border bg-background py-3 pl-4 pr-10 text-sm font-medium focus:border-[var(--color-primary-token)] focus:ring-[var(--color-primary-token)]"
+                    >
+                      <option value="DNI">DNI</option>
+                      <option value="Pasaporte">Pasaporte</option>
+                      <option value="Carné de Extranjería">Carné de Extranjería</option>
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  </div>
+                </Field>
+                <Field label="Número de documento" required>
+                  <input
+                    className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm font-mono font-bold focus:border-[var(--color-primary-token)] focus:ring-[var(--color-primary-token)]"
+                    inputMode={data.pasajero.tipoDocumento === "Pasaporte" ? "text" : "numeric"}
+                    maxLength={DOCUMENTO_MAX_LEN[data.pasajero.tipoDocumento]}
+                    value={data.pasajero.numeroDocumento}
+                    onChange={(e) =>
+                      setData({
+                        ...data,
+                        pasajero: {
+                          ...data.pasajero,
+                          numeroDocumento: sanitizeNumeroDocumento(
+                            data.pasajero.tipoDocumento,
+                            e.target.value,
+                          ),
+                        },
+                      })
+                    }
+                  />
+                  <p className="mt-1 text-[11px] font-medium text-muted-foreground">
+                    {data.pasajero.numeroDocumento.length}/
+                    {DOCUMENTO_MAX_LEN[data.pasajero.tipoDocumento]} dígitos
+                  </p>
                 </Field>
               </div>
             </div>
@@ -602,42 +876,6 @@ function Publish() {
         )}
 
         {step === 1 && (
-          <div className="space-y-6">
-            <h2 className="font-display text-3xl font-extrabold text-[var(--color-ink)]">
-              Comprobante de reserva
-            </h2>
-            <p className="text-sm font-medium text-muted-foreground leading-relaxed">
-              Sube el PDF o pega el código de reserva. Verificamos que el pasaje sea válido y
-              endosable antes de mostrarlo al público.
-            </p>
-            <Field label="Código de reserva (PNR)">
-              <input
-                className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm font-mono font-bold uppercase tracking-widest focus:border-[var(--color-primary-token)] focus:ring-[var(--color-primary-token)]"
-                placeholder="ABC123"
-                value={data.booking}
-                onChange={(e) => setData({ ...data, booking: e.target.value.toUpperCase() })}
-              />
-            </Field>
-            <button
-              onClick={() => setData({ ...data, idUploaded: true })}
-              className={`flex w-full items-center justify-center gap-3 rounded-2xl border-2 border-dashed p-10 text-sm font-bold transition-colors ${
-                data.idUploaded
-                  ? "border-[var(--color-secondary-token)] bg-[var(--color-secondary-token)]/5 text-[var(--color-secondary-token)]"
-                  : "border-gray-300 bg-gray-50 text-gray-500 hover:border-[var(--color-primary-token)] hover:text-[var(--color-primary-token)]"
-              }`}
-            >
-              {data.idUploaded ? (
-                <>
-                  <CheckCircle2 className="h-6 w-6" /> Boleto verificado ✓
-                </>
-              ) : (
-                "Subir boleto (PDF o imagen)"
-              )}
-            </button>
-          </div>
-        )}
-
-        {step === 2 && (
           <div className="space-y-6">
             <h2 className="font-display text-3xl font-extrabold text-[var(--color-ink)]">
               Precio de reventa
@@ -649,8 +887,13 @@ function Publish() {
                   <input
                     type="number"
                     className="w-full bg-transparent font-mono font-bold text-[var(--color-ink)] focus:outline-none"
-                    value={data.original}
-                    onChange={(e) => setData({ ...data, original: Number(e.target.value) })}
+                    value={data.original === 0 ? "" : data.original}
+                    onChange={(e) =>
+                      setData({
+                        ...data,
+                        original: e.target.value === "" ? 0 : Number(e.target.value),
+                      })
+                    }
                   />
                 </div>
               </Field>
@@ -680,11 +923,14 @@ function Publish() {
                     min={precioMinimo}
                     max={precioMaximo}
                     className="w-full bg-transparent font-mono font-bold text-[var(--color-ink)] focus:outline-none"
-                    value={data.price}
+                    value={data.price === 0 ? "" : data.price}
                     onFocus={() => setPrecioTouched(true)}
                     onChange={(e) => {
                       setPrecioTouched(true);
-                      setData({ ...data, price: Number(e.target.value) });
+                      setData({
+                        ...data,
+                        price: e.target.value === "" ? 0 : Number(e.target.value),
+                      });
                     }}
                   />
                 </div>
@@ -801,7 +1047,7 @@ function Publish() {
           </div>
         )}
 
-        {step === 3 && (
+        {step === 2 && (
           <div className="space-y-6">
             <h2 className="font-display text-3xl font-extrabold text-[var(--color-ink)]">
               Confirmar publicación
@@ -865,121 +1111,49 @@ function Publish() {
 
       <div className="mt-8 flex justify-between gap-4">
         <button
-          onClick={() => setStep((s) => Math.max(0, s - 1))}
+          onClick={() => {
+            stepDirection.current = -1;
+            setStep((s) => Math.max(0, s - 1));
+          }}
           disabled={step === 0}
           className="rounded-full bg-white border border-border px-8 py-3.5 text-sm font-bold text-gray-700 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors shadow-sm"
         >
           Atrás
         </button>
         <button
-          onClick={() => setStep((s) => s + 1)}
-          disabled={step === 2 && !!precioError}
+          onClick={() => {
+            if (step === 2) {
+              handlePublicar();
+              return;
+            }
+            stepDirection.current = 1;
+            setStep((s) => s + 1);
+          }}
+          disabled={
+            (step === 0 && !step0Valido) ||
+            (step === 1 && !!precioError) ||
+            (step === 2 && publicando)
+          }
           className="inline-flex flex-1 sm:flex-none justify-center items-center gap-2 rounded-full bg-[var(--color-primary-token)] px-10 py-3.5 text-sm font-bold text-white shadow-sm transition-transform hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
         >
-          {step === 3 ? "Publicar pasaje" : "Continuar"} <ArrowRight className="h-4 w-4" />
+          {step === 2 ? (
+            publicando ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" /> Publicando…
+              </>
+            ) : (
+              <>
+                Publicar pasaje <ArrowRight className="h-4 w-4" />
+              </>
+            )
+          ) : (
+            <>
+              Continuar <ArrowRight className="h-4 w-4" />
+            </>
+          )}
         </button>
       </div>
     </div>
-  );
-}
-
-function AsientoFields({
-  title,
-  tipo,
-  categoria,
-  numero,
-  onTipoChange,
-  onCategoriaChange,
-  onNumeroChange,
-}: {
-  title?: string;
-  tipo: Asiento["tipo"];
-  categoria: AsientoCategoria | null;
-  numero: string;
-  onTipoChange: (t: Asiento["tipo"]) => void;
-  onCategoriaChange: (c: AsientoCategoria) => void;
-  onNumeroChange: (v: string) => void;
-}) {
-  return (
-    <div className="space-y-4">
-      {title && <div className="text-sm font-bold text-[var(--color-ink)]">{title}</div>}
-      <Field label="¿Tu tarifa incluye selección de asiento?">
-        <div className="inline-flex self-start rounded-full border border-border bg-white p-1 shadow-sm">
-          <PillToggle
-            active={tipo === "aleatorio"}
-            onClick={() => onTipoChange("aleatorio")}
-            label="No"
-          />
-          <PillToggle
-            active={tipo === "seleccionado"}
-            onClick={() => onTipoChange("seleccionado")}
-            label="Sí"
-          />
-        </div>
-      </Field>
-
-      {tipo === "seleccionado" ? (
-        <div className="grid gap-5 sm:grid-cols-2">
-          <Field label="Categoría">
-            <div className="inline-flex flex-wrap self-start rounded-full border border-border bg-white p-1 shadow-sm">
-              {(["ventana", "medio", "pasillo"] as AsientoCategoria[]).map((c) => (
-                <PillToggle
-                  key={c}
-                  active={categoria === c}
-                  onClick={() => onCategoriaChange(c)}
-                  label={ASIENTO_CATEGORIA_LABEL[c]}
-                />
-              ))}
-            </div>
-          </Field>
-          <Field label="Número de asiento (opcional)">
-            <input
-              className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm font-medium focus:border-[var(--color-primary-token)] focus:ring-[var(--color-primary-token)]"
-              placeholder="12A"
-              value={numero}
-              onChange={(e) => onNumeroChange(e.target.value)}
-            />
-          </Field>
-        </div>
-      ) : (
-        <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-4 text-xs font-medium text-muted-foreground leading-relaxed">
-          {ASIENTO_ALEATORIO_MENSAJE}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="flex flex-col gap-2">
-      <span className="text-[11px] font-bold uppercase tracking-widest text-[var(--color-ink)]">
-        {label}
-      </span>
-      {children}
-    </label>
-  );
-}
-
-function PillToggle({
-  active,
-  onClick,
-  label,
-}: {
-  active: boolean;
-  onClick: () => void;
-  label: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-full px-4 py-1.5 text-xs font-bold transition-colors ${
-        active ? "bg-[var(--color-ink)] text-white shadow-sm" : "text-gray-500 hover:bg-gray-50"
-      }`}
-    >
-      {label}
-    </button>
   );
 }
 
@@ -1015,34 +1189,6 @@ function Info2({
       >
         {v}
       </span>
-    </div>
-  );
-}
-
-function ReceiptRow({
-  label,
-  value,
-  note,
-  warn,
-}: {
-  label: string;
-  value: string;
-  note?: string;
-  warn?: boolean;
-}) {
-  return (
-    <div className="flex items-start justify-between gap-4 text-sm">
-      <div>
-        <div className="font-medium text-gray-600">{label}</div>
-        {note && (
-          <div
-            className={`mt-0.5 text-xs font-medium leading-relaxed ${warn ? "text-[var(--color-warning-token)]" : "text-muted-foreground"}`}
-          >
-            {note}
-          </div>
-        )}
-      </div>
-      <span className="shrink-0 font-mono font-bold text-[var(--color-ink)]">{value}</span>
     </div>
   );
 }

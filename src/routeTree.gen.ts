@@ -13,9 +13,12 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AlertasRouteImport } from './routes/alertas'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as ExploreRouteImport } from './routes/explore'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as PublishRouteImport } from './routes/publish'
 import { Route as TrustRouteImport } from './routes/trust'
+import { Route as AdminRevisionesRouteImport } from './routes/admin.revisiones'
+import { Route as EditFlightIdRouteImport } from './routes/edit-flight.$id'
 import { Route as FlightIdRouteImport } from './routes/flight.$id'
 
 const IndexRoute = IndexRouteImport.update({
@@ -38,6 +41,11 @@ const ExploreRoute = ExploreRouteImport.update({
   path: '/explore',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ProfileRoute = ProfileRouteImport.update({
   id: '/profile',
   path: '/profile',
@@ -53,6 +61,16 @@ const TrustRoute = TrustRouteImport.update({
   path: '/trust',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminRevisionesRoute = AdminRevisionesRouteImport.update({
+  id: '/admin/revisiones',
+  path: '/admin/revisiones',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EditFlightIdRoute = EditFlightIdRouteImport.update({
+  id: '/edit-flight/$id',
+  path: '/edit-flight/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const FlightIdRoute = FlightIdRouteImport.update({
   id: '/flight/$id',
   path: '/flight/$id',
@@ -64,9 +82,12 @@ export interface FileRoutesByFullPath {
   '/alertas': typeof AlertasRoute
   '/dashboard': typeof DashboardRoute
   '/explore': typeof ExploreRoute
+  '/login': typeof LoginRoute
   '/profile': typeof ProfileRoute
   '/publish': typeof PublishRoute
   '/trust': typeof TrustRoute
+  '/admin/revisiones': typeof AdminRevisionesRoute
+  '/edit-flight/$id': typeof EditFlightIdRoute
   '/flight/$id': typeof FlightIdRoute
 }
 export interface FileRoutesByTo {
@@ -74,9 +95,12 @@ export interface FileRoutesByTo {
   '/alertas': typeof AlertasRoute
   '/dashboard': typeof DashboardRoute
   '/explore': typeof ExploreRoute
+  '/login': typeof LoginRoute
   '/profile': typeof ProfileRoute
   '/publish': typeof PublishRoute
   '/trust': typeof TrustRoute
+  '/admin/revisiones': typeof AdminRevisionesRoute
+  '/edit-flight/$id': typeof EditFlightIdRoute
   '/flight/$id': typeof FlightIdRoute
 }
 export interface FileRoutesById {
@@ -85,9 +109,12 @@ export interface FileRoutesById {
   '/alertas': typeof AlertasRoute
   '/dashboard': typeof DashboardRoute
   '/explore': typeof ExploreRoute
+  '/login': typeof LoginRoute
   '/profile': typeof ProfileRoute
   '/publish': typeof PublishRoute
   '/trust': typeof TrustRoute
+  '/admin/revisiones': typeof AdminRevisionesRoute
+  '/edit-flight/$id': typeof EditFlightIdRoute
   '/flight/$id': typeof FlightIdRoute
 }
 export interface FileRouteTypes {
@@ -97,9 +124,12 @@ export interface FileRouteTypes {
     | '/alertas'
     | '/dashboard'
     | '/explore'
+    | '/login'
     | '/profile'
     | '/publish'
     | '/trust'
+    | '/admin/revisiones'
+    | '/edit-flight/$id'
     | '/flight/$id'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -107,9 +137,12 @@ export interface FileRouteTypes {
     | '/alertas'
     | '/dashboard'
     | '/explore'
+    | '/login'
     | '/profile'
     | '/publish'
     | '/trust'
+    | '/admin/revisiones'
+    | '/edit-flight/$id'
     | '/flight/$id'
   id:
     | '__root__'
@@ -117,9 +150,12 @@ export interface FileRouteTypes {
     | '/alertas'
     | '/dashboard'
     | '/explore'
+    | '/login'
     | '/profile'
     | '/publish'
     | '/trust'
+    | '/admin/revisiones'
+    | '/edit-flight/$id'
     | '/flight/$id'
   fileRoutesById: FileRoutesById
 }
@@ -128,9 +164,12 @@ export interface RootRouteChildren {
   AlertasRoute: typeof AlertasRoute
   DashboardRoute: typeof DashboardRoute
   ExploreRoute: typeof ExploreRoute
+  LoginRoute: typeof LoginRoute
   ProfileRoute: typeof ProfileRoute
   PublishRoute: typeof PublishRoute
   TrustRoute: typeof TrustRoute
+  AdminRevisionesRoute: typeof AdminRevisionesRoute
+  EditFlightIdRoute: typeof EditFlightIdRoute
   FlightIdRoute: typeof FlightIdRoute
 }
 
@@ -164,6 +203,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ExploreRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/profile': {
       id: '/profile'
       path: '/profile'
@@ -185,6 +231,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TrustRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/revisiones': {
+      id: '/admin/revisiones'
+      path: '/admin/revisiones'
+      fullPath: '/admin/revisiones'
+      preLoaderRoute: typeof AdminRevisionesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/edit-flight/$id': {
+      id: '/edit-flight/$id'
+      path: '/edit-flight/$id'
+      fullPath: '/edit-flight/$id'
+      preLoaderRoute: typeof EditFlightIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/flight/$id': {
       id: '/flight/$id'
       path: '/flight/$id'
@@ -200,9 +260,12 @@ const rootRouteChildren: RootRouteChildren = {
   AlertasRoute: AlertasRoute,
   DashboardRoute: DashboardRoute,
   ExploreRoute: ExploreRoute,
+  LoginRoute: LoginRoute,
   ProfileRoute: ProfileRoute,
   PublishRoute: PublishRoute,
   TrustRoute: TrustRoute,
+  AdminRevisionesRoute: AdminRevisionesRoute,
+  EditFlightIdRoute: EditFlightIdRoute,
   FlightIdRoute: FlightIdRoute,
 }
 export const routeTree = rootRouteImport

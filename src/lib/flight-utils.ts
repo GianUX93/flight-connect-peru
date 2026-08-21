@@ -6,6 +6,7 @@ import type {
   FlightStatus,
   Transaction,
   TramoAVender,
+  TipoDocumento,
 } from "./mock-data";
 
 const HOUR = 3600_000;
@@ -77,14 +78,21 @@ export function lastCallFlights(list: Flight[]): Flight[] {
   return list.filter((f) => computeStatus(f) === "last_call");
 }
 
-export function discountPct(f: Flight): number {
-  return Math.round((1 - f.resalePrice / f.originalPrice) * 100);
-}
-
 export const PLATFORM_COMMISSION_RATE = 0.05;
 
 export function comisionPlataforma(monto: number): number {
   return Math.round(monto * PLATFORM_COMMISSION_RATE);
+}
+
+// Lo que el comprador paga de verdad hoy (precio de reventa + comisión) — el
+// número que debe protagonizar cualquier tarjeta o pantalla de precio, nunca
+// el precio de reventa solo.
+export function totalAPagar(f: Flight): number {
+  return f.resalePrice + comisionPlataforma(f.resalePrice);
+}
+
+export function discountPct(f: Flight): number {
+  return Math.round((1 - totalAPagar(f) / f.originalPrice) * 100);
 }
 
 // Neto ESTIMADO al publicar (Paso 4): usa el estimado privado y no verificado del vendedor,
@@ -138,7 +146,11 @@ const soles = new Intl.NumberFormat("es-PE", {
   currency: "PEN",
   minimumFractionDigits: 0,
 });
-export const S = (n: number) => soles.format(n).replace("PEN", "S/");
+// Intl inserta un espacio de ancho normal (U+00A0) entre "S/" y el monto — en las
+// fuentes monoespaciadas grandes de precios (font-mono, text-2xl+) eso se renderiza
+// tan ancho como un dígito, separando el prefijo del monto de forma exagerada. Un
+// espacio fino (U+2009) mantiene la legibilidad sin ese salto visual.
+export const S = (n: number) => soles.format(n).replace("PEN", "S/").replace(" ", " ");
 
 const dtf = new Intl.DateTimeFormat("es-PE", {
   weekday: "short",
@@ -153,6 +165,26 @@ export const fmtDay = (iso: string) =>
   new Intl.DateTimeFormat("es-PE", { day: "2-digit", month: "short" }).format(new Date(iso));
 export const fmtTime = (iso: string) =>
   new Intl.DateTimeFormat("es-PE", { hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
+
+// DNI y Carné de Extranjería peruanos son siempre numéricos — pero un pasaporte
+// no lo es: la mayoría de países emite pasaportes alfanuméricos (ej. Brasil
+// "AB123456"), así que restringir a solo dígitos ahí bloquearía a extranjeros
+// reales. Solo DNI/CE se filtran a dígitos; pasaporte permite letras y números.
+export function sanitizeNumeroDocumento(tipo: TipoDocumento, value: string): string {
+  if (tipo === "Pasaporte") {
+    return value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  }
+  return value.replace(/\D/g, "");
+}
+
+// DNI peruano: siempre 8 dígitos exactos. Carné de Extranjería: formato numérico
+// más largo (hasta 9). Pasaporte: sin estándar internacional fijo — dejamos un
+// tope generoso (12) en vez de una longitud exacta, ya que varía mucho por país.
+export const DOCUMENTO_MAX_LEN: Record<TipoDocumento, number> = {
+  DNI: 8,
+  "Carné de Extranjería": 9,
+  Pasaporte: 12,
+};
 
 export function airlineLogo(a: Flight["airline"]): string {
   switch (a) {

@@ -51,8 +51,9 @@ function Alertas() {
           </div>
         )}
         {alertas.map((a) => (
-          <button
+          <a
             key={a.id}
+            href={a.href}
             onClick={() => markRead(a.id)}
             className="flex w-full items-start gap-4 rounded-[1.5rem] border border-border bg-white p-5 text-left shadow-sm transition-colors hover:bg-surface-2"
           >
@@ -82,7 +83,7 @@ function Alertas() {
                 })}
               </span>
             </div>
-          </button>
+          </a>
         ))}
       </div>
     </div>
